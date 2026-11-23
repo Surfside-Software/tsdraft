@@ -603,6 +603,7 @@ const HEADER = new Set([
   "$PDSIZE",
   "$DIMSTYLE",
   "$TEXTSTYLE",
+  "$CLAYER",
   "$TILEMODE",
   "$ACADVER",
 ]);
@@ -2085,6 +2086,8 @@ class DxfReader {
     if (h.$DIMSTYLE !== undefined) header.dimstyle = unescaped(h.$DIMSTYLE);
 
     if (h.$TEXTSTYLE !== undefined) header.textstyle = unescaped(h.$TEXTSTYLE);
+
+    if (h.$CLAYER !== undefined) header.clayer = unescaped(h.$CLAYER);
 
     const frame =
       this.#wipeoutFrameVariable === undefined

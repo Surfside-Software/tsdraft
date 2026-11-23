@@ -10,6 +10,7 @@ import type { Edit } from "./model.ts";
 import { editedRead } from "./edited.ts";
 import { lintEdit } from "./lint.ts";
 import { canonicalHandle } from "./model.ts";
+import { layerNamed } from "./changed.ts";
 import { editReach, indexRead } from "./reach.ts";
 import { dxfStructure, newDefects, type StructureReport } from "./structure.ts";
 
@@ -34,6 +35,8 @@ export interface FileEditor {
 export interface RecordLinks {
   readonly owner?: string;
   readonly references: readonly string[];
+  /** A dictionary's entries, each name's handle, so the check finds a text's fields. */
+  readonly entries?: Readonly<Record<string, string>>;
 }
 
 /** The module an editor's package names under `"tsdraft": { "editors": { ".dwg": ... } }`. */
@@ -109,17 +112,57 @@ export const dxfEditor: FileEditor = {
     const document = reader.end();
     const keys = keysOf(document);
 
+    const names = dictionaryNames(bytes, document);
+
     for (let i = 0; i < document.count; i++) {
       const owner = document.owner(i);
+      const entries = names.get(i);
       out.set(keys[i]!, {
         ...(owner !== undefined && { owner }),
         references: document.references(i).map((r) => r.handle),
+        ...(entries !== undefined && { entries }),
       });
     }
 
     return out;
   },
 };
+
+/** Each dictionary's entries, each name's handle, by the record's place. */
+function dictionaryNames(
+  bytes: Uint8Array,
+  document: DxfDocument,
+): Map<number, Record<string, string>> {
+  const out = new Map<number, Record<string, string>>();
+  const kind = document.names.indexOf("DICTIONARY");
+
+  if (kind < 0) return out;
+  const latin1 = new TextDecoder("latin1");
+
+  for (let i = 0; i < document.count; i++) {
+    if (document.kinds[i] !== kind) continue;
+    const start = document.starts[i]!;
+    const lines = latin1.decode(bytes.subarray(start, start + document.length(i))).split(/\r?\n/);
+    const entries: Record<string, string> = {};
+
+    for (let k = 0; k + 3 < lines.length; k += 2)
+      if (lines[k]!.trim() === "3" && ["350", "360"].includes(lines[k + 2]!.trim()))
+        entries[lines[k + 1]!] = lines[k + 3]!.trim();
+    out.set(i, entries);
+  }
+
+  return out;
+}
+
+/** True when two records' bytes differ only in the header variable `$VISRETAIN`'s value. */
+function sameButVisretain(a: Uint8Array, b: Uint8Array): boolean {
+  const latin1 = new TextDecoder("latin1");
+
+  const without = (bytes: Uint8Array): string =>
+    latin1.decode(bytes).replace(/(\$VISRETAIN\r?\n\s*70\r?\n)[^\r\n]*/, "$1");
+
+  return without(a) === without(b);
+}
 
 /** Each count of `after` above `before`'s, as `kind: before → after`. */
 function moreOf(
@@ -302,7 +345,63 @@ function allowed(read: DrawingRead, edit: Edit, links: ReadonlyMap<string, Recor
     }
   }
 
-  return { gone, moved: new Set(reach.moved.keys()), pictures };
+  // What a change reaches: its entity, the attributes it names and a viewport, and a layer's record.
+  const changed = new Set<string>();
+  let visretain = false;
+
+  for (const k of reach.changed.keys()) {
+    if (!k.startsWith("layer:")) {
+      changed.add(k);
+      continue;
+    }
+  }
+
+  // A whole value takes out the fields of its text: its extension dictionary's `ACAD_FIELD`.
+  const wholes = new Set<string>();
+
+  for (const s of edit.statements) {
+    if (s.kind === "layer") {
+      const layer = layerNamed(read, s.name);
+
+      if (layer?.handle !== undefined) changed.add(canonicalHandle(layer.handle));
+      visretain ||= layer?.xref === true;
+    }
+
+    if (s.kind !== "change") continue;
+    const h = canonicalHandle(s.handle);
+
+    if (isString(s.changes.text)) wholes.add(h);
+    const at = index.byHandle.get(h);
+
+    for (const tag in s.changes.attributes ?? {})
+      if (
+        isString(s.changes.attributes![tag]) &&
+        at?.kind === "entity" &&
+        at.entity.kind === "insert"
+      )
+        for (const a of at.entity.attributes ?? [])
+          if (a.handle !== undefined && a.tag.toUpperCase() === tag.toUpperCase())
+            wholes.add(canonicalHandle(a.handle));
+  }
+
+  if (wholes.size > 0) {
+    const fields: string[] = [];
+
+    for (const l of links.values()) {
+      const f = l.entries?.["ACAD_FIELD"];
+
+      if (f !== undefined && l.owner !== undefined && wholes.has(canonicalHandle(l.owner)))
+        fields.push(canonicalHandle(f));
+    }
+
+    for (let q = 0; q < fields.length; q++) {
+      gone.add(fields[q]!);
+
+      for (const child of children.get(fields[q]!) ?? []) if (!gone.has(child)) fields.push(child);
+    }
+  }
+
+  return { gone, moved: new Set(reach.moved.keys()), pictures, changed, visretain };
 }
 
 /** Each count of `after` above `before`'s, as `kind: before → after`, past a key's place. */
@@ -368,13 +467,13 @@ export async function checkEditedCopy(
   // A record a moved one owns moves with it, as a 2D polyline's vertices do, and so does each
   // record of a moved picture.
   const moves = (key: string): boolean => {
-    if (may.moved.has(key)) return true;
+    if (may.moved.has(key) || may.changed.has(key)) return true;
     const owner = wasLinks.get(key)?.owner;
 
     if (owner === undefined) return false;
     const o = canonicalHandle(owner);
 
-    return may.moved.has(o) || may.pictures.has(o);
+    return may.moved.has(o) || may.pictures.has(o) || may.changed.has(o);
   };
 
   for (const [key, bytes] of was) {
@@ -386,7 +485,11 @@ export async function checkEditedCopy(
         problems.push(`the record ${key} is gone, and the edit does not erase it`);
     } else if (may.gone.has(key)) {
       problems.push(`the record ${key} is kept, and the edit erases it`);
-    } else if (!sameBytes(bytes, copy) && !moves(key)) {
+    } else if (
+      !sameBytes(bytes, copy) &&
+      !moves(key) &&
+      !(may.visretain && key.startsWith("#") && sameButVisretain(bytes, copy))
+    ) {
       // A record an erasure reaches holds the source's references less what the erasure took.
       const from = wasLinks.get(key)?.references ?? [];
       const to = nowLinks.get(key)?.references ?? [];

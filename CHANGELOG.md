@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- An edit changes texts and properties in place: `e.change(handle, changes)` gives a text, a
+  paragraph or an insert's attributes by tag a whole value or one replacement, keeping every
+  format it does not replace, a text a height and paragraph text a width, and any entity its own
+  layer, color, true color, linetype, lineweight and linetype scale. A whole value takes a text's
+  field out. `e.layer(name, changes)` changes a layer's state, an xref's layer in its host among
+  them, and `e.viewport(handle, changes)` re-aims a viewport, turns it on or off and freezes and
+  thaws layers in it. Both writers make each in place, `lintEdit` refuses what the read tells is
+  wrong, `editedRead` and the preview hold the changes, and `changedEntity`, `changedLayer`,
+  `changedViewport`, `changedParagraph`, `placedText`, `paragraphReads`, `layerNamed`,
+  `linetypeNamed` and `matchedIndex` are exported.
+- A read's `header` gives `clayer`, the current layer, which an edit never freezes.
 - Breaking: the names of shape files and their shapes are SHX names. Rename these in your code;
   what they do is unchanged:
   - `ShapeFile` is `ShxFile`, and its `shapes` is `glyphs`.

@@ -188,7 +188,7 @@ export {
   type Zone,
 } from "./drawing.ts";
 
-export { heldColor, storedColor } from "./colors.ts";
+export { heldColor, matchedIndex, storedColor } from "./colors.ts";
 
 export { readAlpha, storedTransparency } from "./transparency.ts";
 
@@ -592,6 +592,16 @@ export {
 export { lintEdit, type EditDiagnostic, type EditRule, type LintEditOptions } from "./edit/lint.ts";
 
 export { movedEntity } from "./edit/moved.ts";
+
+export {
+  changedEntity,
+  changedLayer,
+  changedViewport,
+  layerNamed,
+  linetypeNamed,
+} from "./edit/changed.ts";
+
+export { changedParagraph, placedText, paragraphReads } from "./edit/text-change.ts";
 
 export {
   editReach,

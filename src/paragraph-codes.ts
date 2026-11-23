@@ -245,7 +245,7 @@ const PLAIN: RunFormat = {
  * What `%%` and the letter after it draw. A paragraph has no other: `%%` before any other
  * character is drawn as it is, and so is `%%%`.
  */
-const PERCENT_CODES: ReadonlyMap<string, string> = new Map([
+export const PERCENT_CODES: ReadonlyMap<string, string> = new Map([
   ["d", "°"],
   ["D", "°"],
   ["p", "±"],

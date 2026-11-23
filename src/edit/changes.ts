@@ -334,7 +334,7 @@ export interface EditPreview {
   readonly edited: DrawingRead;
   /** The handles, as the read gives them, of the entities at the top of a space it erases. */
   readonly erased: ReadonlySet<string>;
-  /** The same of those it moves. */
+  /** The same of those it moves and changes, each drawn where it is after the edit. */
   readonly moved: ReadonlySet<string>;
   /**
    * The edited read with only the entities it moves at the top of each space: its picture, with
@@ -344,13 +344,13 @@ export interface EditPreview {
   /** The names of the blocks the inserts it moves place, which `drawn` needs the xrefs of. */
   readonly blocks: ReadonlySet<string>;
   /**
-   * The layouts whose viewports it erases or moves, whose pictures the kept fragments do not
+   * The layouts whose viewports it erases, moves or changes, whose pictures the kept fragments do not
    * hold: each is drawn again whole from `edited`.
    */
   readonly redrawn: ReadonlySet<string>;
   /**
-   * True when it reaches an entity of a block's definition, which each insert of the block draws:
-   * every picture is drawn again whole from `edited`.
+   * True when it reaches an entity of a block's definition, which each insert of the block draws,
+   * or a layer: every picture is drawn again whole from `edited`.
    */
   readonly whole: boolean;
 }
@@ -381,7 +381,10 @@ export function editPreview(read: DrawingRead, edit: Edit): EditPreview {
   // What it reaches at the top of each space, by the space, with the entity as it was.
   const reached = new Map<string, Map<string, ReadEntity>>();
 
-  for (const h of [...reach.erased.keys(), ...reach.moved.keys()]) {
+  // A layer's change changes every picture that draws on the layer: each is drawn again whole.
+  for (const h of reach.changed.keys()) if (h.startsWith("layer:")) whole = true;
+
+  for (const h of [...reach.erased.keys(), ...reach.moved.keys(), ...reach.changed.keys()]) {
     const at = index.byHandle.get(h);
 
     if (at?.kind === "viewport") redrawn.add(at.layout);

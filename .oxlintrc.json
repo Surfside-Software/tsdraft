@@ -14,6 +14,7 @@
         "cli/src/worker.ts",
         "src/colors.ts",
         "src/drawing.ts",
+        "src/edit/change-shape.ts",
         "src/edit/model.ts",
         "src/json.ts",
         "src/leaders.ts",

@@ -4,6 +4,8 @@
 import { isString } from "../guards.ts";
 import { layerKey } from "../layers.ts";
 import type { DxfDocument } from "../read/document.ts";
+import type { DrawingRead } from "../read/model.ts";
+import { changeSplices, type ChangeRecords } from "./dxf-changes.ts";
 import { groupsOf, leftOut, numberAs, spliced, type HeldGroup, type Splice } from "./dxf-groups.ts";
 import { moveRecord } from "./dxf-move.ts";
 import { canonicalHandle, EditError, type Edit } from "./model.ts";
@@ -79,6 +81,20 @@ function firstOf(groups: readonly HeldGroup[], code: number): string | undefined
     if (g.code === 102) braces = g.value.trim().startsWith("{");
     else if (!braces && g.code === code) return g.value.trim();
   }
+
+  return undefined;
+}
+
+/** The handle of the entry `name` of the dictionary of record `i`, or undefined. */
+function dictionaryEntry(r: Records, i: number, name: string): string | undefined {
+  const groups = r.groups(i);
+
+  for (let k = 0; k + 1 < groups.length; k++)
+    if (groups[k]!.code === 3 && groups[k]!.value.trim() === name) {
+      const next = groups[k + 1]!;
+
+      if (next.code === 350 || next.code === 360) return next.value.trim();
+    }
 
   return undefined;
 }
@@ -198,7 +214,12 @@ function dynamic(r: Records, record: number): boolean {
  * record it changes made again. Throws an `EditError` naming the statement for a reference to
  * what an erasure takes that no rule makes, and for a record a move cannot make.
  */
-export function recordEdits(bytes: Uint8Array, doc: DxfDocument, edit: Edit): RecordEdits {
+export function recordEdits(
+  bytes: Uint8Array,
+  doc: DxfDocument,
+  edit: Edit,
+  read: DrawingRead,
+): RecordEdits {
   const r = recordsOf(bytes, doc);
   let blocks: Map<string, number> | undefined;
   const blocksOf = (): Map<string, number> => (blocks ??= blockRecords(r));
@@ -300,6 +321,30 @@ export function recordEdits(bytes: Uint8Array, doc: DxfDocument, edit: Edit): Re
     }
   });
 
+  // Each change: its records' splices, and the fields a whole value takes out, erased.
+  const records: ChangeRecords = {
+    bytes,
+    doc,
+    byHandle: r.byHandle,
+    kind: r.kind,
+    section: r.section,
+    groups: (i) => r.groups(i),
+    named,
+    followers: (i) => followers(r, i),
+    dictionaryEntry: (i, name) => dictionaryEntry(r, i, name),
+  };
+
+  const changes = changeSplices(records, edit, read);
+
+  for (const [i, statement] of changes.erased) {
+    if (erased.has(i) || moved.has(i))
+      throw new EditError(
+        `${handleOf(r, i)} is reached by statement ${erased.get(i) ?? moved.get(i)} and by ${statement}`,
+        statement,
+      );
+    erased.set(i, statement);
+  }
+
   // What an erasure owns goes with it, at any depth.
   const queue = [...erased.keys()];
 
@@ -335,7 +380,7 @@ export function recordEdits(bytes: Uint8Array, doc: DxfDocument, edit: Edit): Re
     if (h !== undefined) gone.add(canonicalHandle(h));
   }
 
-  const splices = new Map<number, Splice[]>();
+  const splices = new Map<number, Splice[]>(changes.splices);
 
   const add = (i: number, list: readonly Splice[]): void => {
     if (list.length === 0) return;
@@ -454,7 +499,13 @@ function referencesOut(
     }
 
     if (braces === "{ACAD_REACTORS" && g.code === 330) out.push(leftOut(g));
-    else if (braces === "{BLKREFS" && g.code === 331 && kind === "BLOCK_RECORD")
+    else if (braces === undefined && kind === "DICTIONARY" && (g.code === 350 || g.code === 360)) {
+      // An entry of a dictionary, its name and its object, as a field's goes from its text's.
+      const entry = groups[k - 1];
+
+      if (entry?.code !== 3) refuse("names as a dictionary's object without its name");
+      out.push(leftOut(entry!), leftOut(g));
+    } else if (braces === "{BLKREFS" && g.code === 331 && kind === "BLOCK_RECORD")
       out.push(leftOut(g));
     else if (braces !== undefined) refuse(`names in its ${braces} group`);
     else if (kind === "GROUP" && g.code === 340) out.push(leftOut(g));

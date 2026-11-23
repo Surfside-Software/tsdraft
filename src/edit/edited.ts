@@ -15,8 +15,23 @@ import type {
   ReadViewport,
 } from "../read/model.ts";
 import { isString } from "../guards.ts";
-import { checkEdit, canonicalHandle, type Edit } from "./model.ts";
+import { inlineHeights } from "../read/dxf.ts";
+import { layerKey } from "../layers.ts";
+import { changedEntity, changedLayer, changedViewport } from "./changed.ts";
+import {
+  checkEdit,
+  canonicalHandle,
+  type Edit,
+  type EntityChanges,
+  type LayerChanges,
+  type ViewportChanges,
+} from "./model.ts";
 import { handleProblem } from "./lint.ts";
+import {
+  entityChangeProblems,
+  layerChangeProblems,
+  viewportChangeProblems,
+} from "./lint-change.ts";
 import { movedEntity, movedViewport } from "./moved.ts";
 import { editReach, indexRead, type ReadIndex } from "./reach.ts";
 import { applied, type Applied } from "./transform.ts";
@@ -48,11 +63,24 @@ export function fileKind(e: ReadEntity): string {
 const key = (h: string | undefined): string | undefined =>
   h === undefined ? undefined : canonicalHandle(h);
 
-/** What the edit does to each handle it reaches: left out, or moved by a transform. */
+/** What the edit does to each handle it reaches: left out, moved by a transform, or changed. */
 interface Plan {
   readonly erased: ReadonlySet<string>;
   readonly moved: ReadonlyMap<string, Applied>;
+  readonly changed: ReadonlyMap<string, EntityChanges>;
+  readonly viewports: ReadonlyMap<string, ViewportChanges>;
+  readonly read: DrawingRead;
   readonly index: ReadIndex;
+}
+
+/** An entity after the change the plan makes of it, or the entity as it is. */
+function changedOf(plan: Plan, e: ReadEntity): ReadEntity {
+  const c = plan.changed.get(key(e.handle) ?? "");
+
+  if (c === undefined) return e;
+  const made = changedEntity(e, c, plan.read);
+
+  return "problem" in made ? e : made;
 }
 
 const takes = (plan: Plan, h: string | undefined): "erased" | Applied | undefined => {
@@ -95,6 +123,27 @@ function lessOne(row: ReadLayerCensus, e: ReadEntity): ReadLayerCensus {
   };
 }
 
+/** A layer's counts with one more entity of it. */
+function moreOne(row: ReadLayerCensus | undefined, e: ReadEntity): ReadLayerCensus {
+  const kind = fileKind(e);
+  const kinds = { ...row?.kinds, [kind]: (row?.kinds[kind] ?? 0) + 1 };
+  const lineweights = { ...row?.lineweights };
+  const weight = e.lineweight;
+  const ownWeight = weight !== undefined && weight !== -1;
+
+  if (ownWeight) lineweights[String(weight)] = (lineweights[String(weight)] ?? 0) + 1;
+  const ownColor = (e.color !== undefined && e.color !== 256) || e.trueColor !== undefined;
+  const ownLinetype = e.linetype !== undefined && e.linetype.toUpperCase() !== "BYLAYER";
+
+  return {
+    kinds,
+    ownColor: (row?.ownColor ?? 0) + (ownColor ? 1 : 0),
+    ownLinetype: (row?.ownLinetype ?? 0) + (ownLinetype ? 1 : 0),
+    ownLineweight: (row?.ownLineweight ?? 0) + (ownWeight ? 1 : 0),
+    lineweights,
+  };
+}
+
 /** A space's census with its erased entities left out and its moved ones moved. */
 function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): ReadCensus {
   let layers: Record<string, ReadLayerCensus> | undefined;
@@ -103,7 +152,25 @@ function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): Rea
   for (const e of entities) {
     const what = takes(plan, e.handle);
 
-    if (what === undefined) continue;
+    if (what === undefined) {
+      const after = changedOf(plan, e);
+
+      if (after === e) continue;
+      // A changed entity's pen counts on the layer it is on after the change.
+      layers ??= { ...c.layers };
+      const row = layers[e.layer];
+
+      if (row !== undefined) {
+        const less = lessOne(row, e);
+
+        if (Object.keys(less.kinds).length === 0) delete layers[e.layer];
+        else layers[e.layer] = less;
+      }
+
+      layers[after.layer] = moreOne(layers[after.layer], after);
+      moved.set(key(e.handle)!, after);
+      continue;
+    }
 
     if (what === "erased") {
       layers ??= { ...c.layers };
@@ -134,10 +201,23 @@ function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): Rea
 
       if (m === undefined) return t;
 
-      if (m.kind === "text") return { ...t, at: m.stored, height: m.height };
+      if (m.kind === "text") return { ...t, layer: m.layer, at: m.stored, height: m.height };
 
       if (m.kind !== "mtext") return t;
-      const s = plan.moved.get(key(t.handle)!)!;
+      const s = plan.moved.get(key(t.handle)!);
+
+      if (s === undefined) {
+        // A changed paragraph's heights of its own, worked out from its value again.
+        const { inlineHeights: _, ...rest } = t;
+        const heights = m.value.includes("\\H") ? inlineHeights(m.value, m.height) : [];
+
+        return {
+          ...rest,
+          layer: m.layer,
+          height: m.height,
+          ...(heights.length > 0 && { inlineHeights: heights }),
+        };
+      }
 
       return {
         ...t,
@@ -154,7 +234,9 @@ function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): Rea
     .map((d) => {
       const m = moved.get(key(d.handle) ?? "");
 
-      return m !== undefined && "textAt" in m ? { ...d, at: m.textAt } : d;
+      if (m === undefined) return d;
+
+      return "textAt" in m ? { ...d, layer: m.layer, at: m.textAt } : { ...d, layer: m.layer };
     });
 
   const inserts = c.inserts
@@ -162,7 +244,7 @@ function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): Rea
     .map((i) => {
       const m = moved.get(key(i.handle) ?? "");
 
-      return m?.kind === "insert" ? { ...i, at: m.at, scale: m.scale } : i;
+      return m?.kind === "insert" ? { ...i, layer: m.layer, at: m.at, scale: m.scale } : i;
     });
 
   return { ...c, layers: layers ?? c.layers, texts, dimensions, inserts, counts };
@@ -209,7 +291,11 @@ function space(s: ReadSpace, plan: Plan): ReadSpace {
     else if (what !== undefined) {
       kept.push(movedEntity(e, what));
       changed = true;
-    } else kept.push(e);
+    } else {
+      const after = changedOf(plan, e);
+      kept.push(after);
+      changed ||= after !== e;
+    }
   }
 
   let other = s.other;
@@ -252,6 +338,13 @@ function layout(l: ReadLayout, plan: Plan): ReadLayout {
 
   const viewports = l.viewports.map((v): ReadViewport => {
     const what = takes(plan, v.handle);
+    const c = plan.viewports.get(key(v.handle) ?? "");
+
+    if (c !== undefined) {
+      viewportsChanged = true;
+
+      return changedViewport(v, c, plan.read);
+    }
 
     if (what === undefined || what === "erased") return v;
     viewportsChanged = true;
@@ -271,7 +364,20 @@ function layout(l: ReadLayout, plan: Plan): ReadLayout {
     .map((i): ReadInsert => {
       const what = takes(plan, i.handle);
 
-      if (what === undefined || what === "erased") return i;
+      if (what === undefined) {
+        const c = plan.changed.get(key(i.handle) ?? "");
+
+        if (c === undefined) return i;
+        const { attributes: _, ...pen } = c;
+        const after = changedEntity(i, pen, plan.read);
+
+        if ("problem" in after || after.kind !== "insert") return i;
+        insertsChanged = true;
+
+        return after;
+      }
+
+      if (what === "erased") return i;
       insertsChanged = true;
 
       // SAFETY: movedEntity gives back an entity of the kind it is given.
@@ -309,7 +415,11 @@ function blocks(
       else if (what !== undefined) {
         entities.push(movedEntity(e, what));
         changed = true;
-      } else entities.push(e);
+      } else {
+        const after = changedOf(plan, e);
+        entities.push(after);
+        changed ||= after !== e;
+      }
     }
 
     if (!changed) out.push(b);
@@ -369,8 +479,49 @@ export function editedRead(read: DrawingRead, edit: Edit): DrawingRead {
   for (const [h, i] of reach.moved)
     if (!twice.has(h) && applies(h, i)) moved.set(h, transforms[i]!);
 
-  if (erased.size === 0 && moved.size === 0) return read;
-  const plan: Plan = { erased, moved, index };
+  // The changes `lintEdit` finds nothing wrong with.
+  const changed = new Map<string, EntityChanges>();
+  const viewports = new Map<string, ViewportChanges>();
+  const layers = new Map<string, LayerChanges>();
+  edit.statements.forEach((s, i) => {
+    if (s.kind === "layer") {
+      const k = `layer:${layerKey(s.name)}`;
+
+      if (!twice.has(k) && layerChangeProblems(read, s).length === 0)
+        layers.set(layerKey(s.name), s.changes);
+
+      return;
+    }
+
+    if (s.kind !== "change" && s.kind !== "viewport") return;
+    const h = canonicalHandle(s.handle);
+
+    if (twice.has(h)) return;
+
+    if (s.kind === "viewport") {
+      if (viewportChangeProblems(read, index, s, "").length === 0) viewports.set(h, s.changes);
+
+      return;
+    }
+
+    if (handleProblem(read, index, edit, i, h)?.severity === "error") return;
+    const at = index.byHandle.get(h);
+
+    if (at?.kind !== "entity") return;
+
+    if (entityChangeProblems(read, at.entity, s).every((p) => p.severity !== "error"))
+      changed.set(h, s.changes);
+  });
+
+  if (
+    erased.size === 0 &&
+    moved.size === 0 &&
+    changed.size === 0 &&
+    viewports.size === 0 &&
+    layers.size === 0
+  )
+    return read;
+  const plan: Plan = { erased, moved, changed, viewports, read, index };
 
   // The picture of an erased dimension or table goes with it.
   const gonePictures = new Set<string>();
@@ -419,8 +570,10 @@ export function editedRead(read: DrawingRead, edit: Edit): DrawingRead {
     unreadEntities = counts;
   }
 
+  // A field goes with its text, and with a whole value given to it.
   const fields = read.fields
     .filter((f) => takes(plan, f.text.handle) !== "erased")
+    .filter((f) => !isString(changed.get(key(f.text.handle) ?? "")?.text))
     .map((f): ReadField => {
       const what = takes(plan, f.text.handle);
 
@@ -439,6 +592,11 @@ export function editedRead(read: DrawingRead, edit: Edit): DrawingRead {
 
   return {
     ...read,
+    layers: read.layers.map((l) => {
+      const c = layers.get(layerKey(l.name));
+
+      return c === undefined ? l : changedLayer(l, c, read);
+    }),
     model: space(read.model, plan),
     layouts: read.layouts.map((l) => layout(l, plan)),
     blocks: blocks(read.blocks, plan, gonePictures),

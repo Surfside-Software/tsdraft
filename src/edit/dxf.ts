@@ -84,7 +84,7 @@ export function editDXF(bytes: Uint8Array, edit: Edit, read: DrawingRead): Uint8
     const refused = lintEdit(made, read).find((d) => d.severity === "error");
 
     if (refused !== undefined) throw new EditError(refused.message, refused.statement);
-    const { erased, patched } = recordEdits(bytes, doc, made);
+    const { erased, patched } = recordEdits(bytes, doc, made, read);
     const parts: Uint8Array[] = [];
 
     for (let i = 0; i < doc.count; i++) {

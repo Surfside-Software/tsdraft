@@ -134,6 +134,8 @@ export interface ReadHeader {
   readonly dimstyle?: string;
   /** `$TEXTSTYLE`, the current text style. */
   readonly textstyle?: string;
+  /** `$CLAYER`, the current layer, which is never frozen. */
+  readonly clayer?: string;
   /**
    * The dictionary variable `WIPEOUTFRAME`, which the leading CAD app reads of whether wipeouts'
    * frames show: 0 neither shown nor plotted, 1 both, 2 shown and not plotted. A file without it

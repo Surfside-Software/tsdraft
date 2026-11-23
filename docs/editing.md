@@ -4,8 +4,9 @@ An edit changes a drawing file a firm already has, and keeps the rest of it as t
 It names the file by its path and by the SHA-256 of the bytes it was planned on, so it is never
 made on other bytes, and it is written to an edited copy, never over the firm's file.
 
-This version erases and moves: `e.erase(...handles)` and `e.move(handles, transform)`. The
-statements that change and add come in later versions, on this footing.
+This version erases, moves and changes: `e.erase(...handles)`, `e.move(handles, transform)`,
+`e.change(handle, changes)`, `e.layer(name, changes)` and `e.viewport(handle, changes)`. The
+statements that add come in later versions, on this footing.
 
 ## The edit file
 
@@ -83,9 +84,76 @@ other; an erasure of what an associative dimension names, the dimension kept; a 
 goes that no rule takes out; a dynamic block's definition; and a handle the file holds twice.
 
 `editedRead(read, edit)` is the read of the file after the edit: what it erases left out of its
-space, its census and its lists, and what it moves moved. The objects an erased entity owns that
+space, its census and its lists, what it moves moved, and what it changes changed, with the census
+of each layer and the fields a whole value takes out. The objects an erased entity owns that
 the read counts and does not list, and the fields it counts by their code, it leaves as the
 source's.
+
+## Change a text, a pen, a layer and a viewport
+
+```ts
+export default editDrawing(
+  { file: "../2_Sheets/TITLE BLOCK.dwg", sha256: "9c1f…", name: "rev-1" },
+  (e) => {
+    e.change("126DD", { text: { replace: ["2021", "2026"] } });
+    e.change("126CA", { text: "100 MAIN STREET\\PSPRINGFIELD", width: 2.7 });
+    e.change("1270A", { text: "11.19.2026" });
+    e.change("4361E", { layer: "A-GLAZ-IDEN", color: 1, lineweight: 35 });
+    e.change("436A0", { attributes: { SHEET: "C-3", ADDRESS: { replace: ["NORTH", "SOUTH"] } } });
+    e.layer("SURVEY|TOPO", { frozen: true });
+    e.layer("SURVEY|EOP", { color: 250 });
+    e.viewport("2C41", { center: [1204.5, 880], ratio: 1 / 240, freeze: ["SURVEY|TEXT"] });
+  },
+);
+```
+
+`e.change(handle, changes)` changes an entity in place. It keeps its handle, its record, its style
+and every format its text does not replace.
+
+- `text` is a whole value, with its codes, or `{ replace: [from, to] }`. In a single-line text
+  or a single-line attribute, `from` is found in the value as held, `%%` codes as written, once
+  and only once. In paragraph text, and an attribute of paragraph text, `from` is found in the
+  characters as the paragraph reads, codes left out and each `\P` a line's end, once and only
+  once. `to` takes the format in force at the first character it replaces, written with `\`, `{`
+  and `}` escaped and each line's end as `\P`. A group or a stack inside the replaced part goes
+  with it, and a code that would change the characters after it is refused. A whole value of
+  paragraph text is refused where `parseParagraph` does not lay it out.
+- A text that shows a field takes a whole value only: the field goes with its objects, and the
+  text holds the value, as a CAD program's conversion of a field to text leaves it. A replacement
+  in one is refused, since the field writes its own value back over it.
+- `height` is a text's height or paragraph text's, and `width` the width paragraph text wraps at.
+  Both keep the text's point and its attachment. Paragraph text of one column takes the width as
+  its own and its column's; one of two or more columns, or one whose text the new width would
+  flow into a second column, is refused. An aligned text's height its two points set.
+- A justified single-line text whose value or height changes starts where the widths of its
+  font's characters put it, and an aligned or a fitted one takes the height or the width factor
+  that keeps it between its points. Where the widths do not give it exactly, such as a value with
+  `%%` codes or a TrueType text justified Middle, a DXF keeps the start it holds, which a CAD
+  program works out again when it reads the file, and a DWG, which stores the start a CAD
+  program draws from, refuses the change.
+- `attributes` changes an insert's attributes by tag, each as `text` is.
+- `layer`, `color` (1 to 255, 0 for ByBlock, 256 for ByLayer), `trueColor` (0xRRGGBB, with the
+  nearest index beside it), `linetype` (one the file holds, `ByLayer` or `ByBlock`), `lineweight`
+  (in hundredths of a millimetre, as the read gives it, or `ByLayer`, `ByBlock` or `Default`)
+  and `linetypeScale` set the entity's own pen. A 2D polyline's vertices take it with it. The
+  layer and the linetype must be the file's: an edit adds none yet.
+
+`e.layer(name, changes)` changes a layer of the file's table: `on`, `frozen`, `locked`, `plot`,
+`color`, `trueColor`, `linetype` and `lineweight`. A host changes an xref's layer, `XREF|LAYER`,
+in its own record, marked as the host's override so a reload of the xref keeps it, and sets
+`$VISRETAIN` to 1, without which a host keeps no change of an xref's layer. A DWG host whose
+`VISRETAIN` is 0 holds no record of an xref's layers, and such a change is refused there. A
+change of an xref layer's linetype is not made yet.
+
+`e.viewport(handle, changes)` re-aims a viewport: `center` is the point of model space at its
+middle, `ratio` its scale in paper units to drawing units, `twist` its view turned in degrees.
+`on` turns it on or off, and `freeze` and `thaw` list layers to freeze in it alone and to thaw.
+
+`lintEdit` refuses besides: a change of a kind that holds no text or no width, a `from` found
+nowhere or more than once, a layer, linetype or attribute tag the file lacks, a change of an
+entity of a block the file inserts more than once, and a viewport re-aimed out of what the read
+with `only` keeps. A change on a locked layer is made with the warning `edit-locked-layer`, and
+one of a block inserted once with `edit-block-definition`.
 
 ## The preview
 
@@ -93,7 +161,8 @@ source's.
 it edits as it will plot after the edit, from `editedRead(read, edit)`: model space and each
 layout, at the sheet's own pens, with the xrefs found beside the file. A second picture, the
 picture of changes, draws every entity the edit does not reach faint, each it erases dashed in red
-where it was, and each it moves dashed in amber where it was and at full strength where it goes.
+where it was, and each it moves or changes dashed in amber where it was and at full strength where
+it goes. A change of a layer draws every picture again.
 `dev` toggles between the two with the Changes button or the C key, and serves the second at
 `/drawing.svg?changes=1`. The JSON's `edit` gives each statement with its call, its handles and
 its box in model space and on each sheet, and `lintEdit`'s diagnostics come with the others, each

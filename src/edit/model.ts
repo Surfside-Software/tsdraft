@@ -6,6 +6,12 @@ import type { Drawing, Entity, Point, Units } from "../drawing.ts";
 import { isFunction, isRecord, isString } from "../guards.ts";
 import type { DrawingRead, ReadPart } from "../read/model.ts";
 import type { Standard } from "../standard/document.ts";
+import {
+  copyTextChange,
+  entityChangesProblem,
+  layerChangesProblem,
+  viewportChangesProblem,
+} from "./change-shape.ts";
 
 /** The version of the `Edit` format. Format 0 carries no promise of stability. */
 export const EDIT_FORMAT = 0;
@@ -45,17 +51,23 @@ export interface Transform {
 }
 
 export interface EntityChanges {
+  /** Not made yet: move the entity in a statement of its own. */
   readonly move?: Transform;
+  /** A text's or paragraph text's value: the whole value, with its codes, or one replacement. */
   readonly text?: TextChange;
-  /** A text's or an attribute's height, and paragraph text's height and the width it wraps at. */
+  /** A text's height, and paragraph text's height and the width it wraps at, 0 for none. */
   readonly height?: number;
   readonly width?: number;
   /** An insert's attributes, by tag. */
   readonly attributes?: Readonly<Record<string, TextChange>>;
   readonly layer?: string;
+  /** A color index: 1 to 255, 0 for ByBlock or 256 for ByLayer. */
   readonly color?: number;
+  /** A true color, 0xRRGGBB. */
   readonly trueColor?: number;
+  /** A linetype the file holds, `ByLayer` or `ByBlock`. */
   readonly linetype?: string;
+  /** Hundredths of a millimetre, as the read gives them, or `ByLayer`, `ByBlock` or `Default`. */
   readonly lineweight?: number | "ByLayer" | "ByBlock" | "Default";
   readonly linetypeScale?: number;
 }
@@ -68,9 +80,12 @@ export interface LayerChanges {
   readonly frozen?: boolean;
   readonly locked?: boolean;
   readonly plot?: boolean;
+  /** A color index, 1 to 255. */
   readonly color?: number;
+  /** A true color, 0xRRGGBB. */
   readonly trueColor?: number;
   readonly linetype?: string;
+  /** Hundredths of a millimetre, as the read gives them, or `Default`. */
   readonly lineweight?: number | "Default";
 }
 
@@ -136,6 +151,15 @@ export interface EditBuilder {
    * picture, and a viewport with the entity that clips it.
    */
   move(handles: readonly string[], transform: Transform): void;
+  /**
+   * Changes an entity in place: its text, an insert's attributes by tag, its height and width,
+   * and its pen. A text keeps its record, its style and its formats.
+   */
+  change(handle: string, changes: EntityChanges): void;
+  /** Changes a layer by its name, an xref's `XREF|LAYER` among them, as a host overrides it. */
+  layer(name: string, changes: LayerChanges): void;
+  /** Re-aims a viewport, turns it on or off, and freezes or thaws layers in it alone. */
+  viewport(handle: string, changes: ViewportChanges): void;
 }
 
 /** What `editDrawing` returns, which the command recognizes as an edit file's default export. */
@@ -204,6 +228,31 @@ export function editDrawing(
           if (problem !== undefined) fail(`move: ${problem}`);
           calls.push(holdCall(builder.move));
           statements.push({ kind: "move", handles: list, transform: copyTransform(transform) });
+        },
+        change(handle, changes) {
+          const [h] = handlesOf([handle], "change");
+          const problem = entityChangesProblem(changes);
+
+          if (problem !== undefined) fail(`change: ${problem}`);
+          calls.push(holdCall(builder.change));
+          statements.push({ kind: "change", handle: h!, changes: copyEntityChanges(changes) });
+        },
+        layer(name, changes) {
+          if (!isString(name) || name === "" || name.length > 255)
+            fail("layer: the layer's name is not 1 to 255 characters");
+          const problem = layerChangesProblem(changes);
+
+          if (problem !== undefined) fail(`layer: ${problem}`);
+          calls.push(holdCall(builder.layer));
+          statements.push({ kind: "layer", name, changes: { ...changes } });
+        },
+        viewport(handle, changes) {
+          const [h] = handlesOf([handle], "viewport");
+          const problem = viewportChangesProblem(changes);
+
+          if (problem !== undefined) fail(`viewport: ${problem}`);
+          calls.push(holdCall(builder.viewport));
+          statements.push({ kind: "viewport", handle: h!, changes: copyViewportChanges(changes) });
         },
       };
 
@@ -286,6 +335,26 @@ const copyTransform = (t: Transform): Transform => ({
   ...(t.scale !== undefined && { scale: t.scale }),
 });
 
+const copyEntityChanges = (c: EntityChanges): EntityChanges => {
+  const { text, attributes, move: _, ...rest } = c;
+  const tags: Record<string, TextChange> = {};
+
+  for (const tag in attributes) tags[tag] = copyTextChange(attributes[tag]!);
+
+  return {
+    ...rest,
+    ...(text !== undefined && { text: copyTextChange(text) }),
+    ...(attributes !== undefined && { attributes: tags }),
+  };
+};
+
+const copyViewportChanges = (c: ViewportChanges): ViewportChanges => ({
+  ...c,
+  ...(c.center !== undefined && { center: [c.center[0], c.center[1]] satisfies Point }),
+  ...(c.freeze !== undefined && { freeze: [...c.freeze] }),
+  ...(c.thaw !== undefined && { thaw: [...c.thaw] }),
+});
+
 /** A read that is loaded when one of its fields is first asked for. */
 function lazy(load: () => DrawingRead): DrawingRead {
   let read: DrawingRead | undefined;
@@ -322,7 +391,13 @@ const UNITS: ReadonlySet<string> = new Set(["in", "ft", "mm", "cm", "m"]);
 const KINDS: ReadonlySet<string> = new Set(["erase", "move", "change", "layer", "viewport"]);
 
 /** The kinds of statement this version makes. */
-export const MADE_KINDS: ReadonlySet<string> = new Set(["erase", "move"]);
+export const MADE_KINDS: ReadonlySet<string> = new Set([
+  "erase",
+  "move",
+  "change",
+  "layer",
+  "viewport",
+]);
 
 /** True when each item of a list passes `test`, read by index and never by its methods. */
 function everyOf(list: readonly unknown[], test: (item: unknown) => boolean): boolean {
@@ -420,9 +495,23 @@ export function checkEdit(value: unknown): string[] {
       } else if (kind === "layer") {
         const layer = s["name"];
 
-        if (!isString(layer) || layer === "") problems.push(`statement ${i} names no layer`);
-      } else if (!isHandle(s["handle"])) {
-        problems.push(`statement ${i} names a handle that is not 1 to 16 hexadecimal digits`);
+        if (!isString(layer) || layer === "" || layer.length > 255)
+          problems.push(`statement ${i} names no layer`);
+        // SAFETY: layerChangesProblem checks each field at run time, whatever the value given.
+        const p = layerChangesProblem(s["changes"] as LayerChanges);
+
+        if (p !== undefined) problems.push(`statement ${i}: ${p}`);
+      } else {
+        if (!isHandle(s["handle"]))
+          problems.push(`statement ${i} names a handle that is not 1 to 16 hexadecimal digits`);
+
+        // SAFETY: each problem function checks each field at run time, whatever the value given.
+        const p =
+          kind === "change"
+            ? entityChangesProblem(s["changes"] as EntityChanges)
+            : viewportChangesProblem(s["changes"] as ViewportChanges);
+
+        if (p !== undefined) problems.push(`statement ${i}: ${p}`);
       }
     }
   }

@@ -9,6 +9,11 @@ import { canonicalHandle, checkEdit, MADE_KINDS, statementCall, type Edit } from
 import { movedEntity, NOT_MOVED, NOT_SCALED } from "./moved.ts";
 import { editReach, indexRead, type Located, type ReadIndex } from "./reach.ts";
 import { applied } from "./transform.ts";
+import {
+  entityChangeProblems,
+  layerChangeProblems,
+  viewportChangeProblems,
+} from "./lint-change.ts";
 
 /**
  * True when a paragraph's codes give a run a height in drawing units, not as a factor of the
@@ -34,6 +39,10 @@ function ownHeight(e: ReadEntity): boolean {
       return false;
   }
 }
+
+/** What each statement that names a handle does to it, and to an entity of a block's definition. */
+const VERBS = { erase: "erases", move: "moves", change: "changes" } as const;
+const INSIDE = { erase: "erases it from", move: "moves it in", change: "changes it in" } as const;
 
 const DIMENSIONS: ReadonlySet<string> = new Set([
   "dimension",
@@ -69,6 +78,12 @@ export type EditRule =
   /** An old leader and its note, moved or erased apart. */
   | "edit-leader-note"
   | "edit-locked-layer"
+  /** A change of an entity it cannot make: a text not found once, a width of columns, a name the file lacks. */
+  | "edit-change"
+  /** A layer's change it cannot make: a layer the file holds no record of. */
+  | "edit-layer"
+  /** A viewport's change it cannot make, or a viewport named by another kind of statement. */
+  | "edit-viewport"
   | "edit-limit";
 
 export interface EditDiagnostic {
@@ -125,10 +140,10 @@ export function handleProblem(
 ): { rule: EditRule; severity: "error" | "warning"; message: string } | undefined {
   const s = edit.statements[statement]!;
 
-  if (s.kind !== "erase" && s.kind !== "move") return undefined;
+  if (s.kind !== "erase" && s.kind !== "move" && s.kind !== "change") return undefined;
   const h = canonicalHandle(handle);
   const at: Located | undefined = index.byHandle.get(h);
-  const verb = s.kind === "erase" ? "erases" : "moves";
+  const verb = VERBS[s.kind];
 
   const error = (rule: EditRule, message: string) => ({
     rule,
@@ -145,7 +160,9 @@ export function handleProblem(
   if (at.kind === "attribute")
     return error(
       "edit-part",
-      `${h} is an attribute of the insert ${at.insert}, which is erased and moved with it`,
+      s.kind === "change"
+        ? `${h} is an attribute of the insert ${at.insert}: change it by its tag, in the insert's attributes`
+        : `${h} is an attribute of the insert ${at.insert}, which is erased and moved with it`,
     );
 
   if (at.kind === "picture")
@@ -164,13 +181,16 @@ export function handleProblem(
   }
 
   if (at.kind === "viewport") {
+    if (s.kind === "change")
+      return error("edit-viewport", `${h} is a viewport, which a viewport statement changes`);
+
     if (s.kind === "erase")
       return error(
         "edit-not-made",
         `The viewport ${h} cannot be erased by this version of tsdraft`,
       );
 
-    if (!applied(s.transform).moveOnly)
+    if (s.kind === "move" && !applied(s.transform).moveOnly)
       return error(
         "edit-transform",
         `The viewport ${h} is only moved on its paper: a turn or a scale of it is refused`,
@@ -264,7 +284,7 @@ export function handleProblem(
     return {
       rule: "edit-block-definition",
       severity: "warning",
-      message: `${h} is of the block ${JSON.stringify(name)}, which ${read.only === undefined ? "the file" : "the read"} shows inserted ${uses === 1 ? "once" : "nowhere"}: the edit ${s.kind === "erase" ? "erases it from" : "moves it in"} the block's definition, in the block's own coordinates`,
+      message: `${h} is of the block ${JSON.stringify(name)}, which ${read.only === undefined ? "the file" : "the read"} shows inserted ${uses === 1 ? "once" : "nowhere"}: the edit ${INSIDE[s.kind]} the block's definition${s.kind === "move" ? ", in the block's own coordinates" : ""}`,
     };
   }
 
@@ -413,6 +433,43 @@ export function lintEdit(
                 : `${h} is the note of the old leader ${leader}: ${s.kind === "erase" ? "it is erased only with its leader" : "it moves with its leader, in the same statement"}`,
           });
       }
+    });
+
+    edit.statements.forEach((s, i) => {
+      if (s.kind === "layer") {
+        for (const p of layerChangeProblems(read, s)) report({ ...p, statement: i });
+
+        return;
+      }
+
+      if (s.kind === "viewport") {
+        for (const p of viewportChangeProblems(read, index, s, missingWhy(read)))
+          report({ ...p, statement: i });
+
+        return;
+      }
+
+      if (s.kind !== "change") return;
+      const h = canonicalHandle(s.handle);
+      const problem = handleProblem(read, index, edit, i, h);
+
+      if (problem !== undefined) report({ ...problem, statement: i, handle: h });
+
+      if (problem?.severity === "error") return;
+      const at = index.byHandle.get(h);
+
+      if (at?.kind !== "entity") return;
+
+      for (const p of entityChangeProblems(read, at.entity, s)) report({ ...p, statement: i });
+
+      if (locked.has(layerKey(at.entity.layer)))
+        report({
+          rule: "edit-locked-layer",
+          severity: "warning",
+          statement: i,
+          handle: h,
+          message: `${h} is on the locked layer ${JSON.stringify(at.entity.layer)}: the edit changes it, and the layer stays locked`,
+        });
     });
   } catch (error) {
     report({

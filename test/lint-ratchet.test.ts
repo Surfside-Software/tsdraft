@@ -28,6 +28,7 @@ const PINNED = new Map([
       ["cli/src/worker.ts", 6],
       ["src/colors.ts", 1],
       ["src/drawing.ts", 32],
+      ["src/edit/change-shape.ts", 3],
       ["src/edit/model.ts", 3],
       ["src/json.ts", 3],
       ["src/leaders.ts", 15],

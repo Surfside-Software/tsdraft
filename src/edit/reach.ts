@@ -9,6 +9,7 @@ import type {
   ReadViewport,
 } from "../read/model.ts";
 import { isString } from "../guards.ts";
+import { layerKey } from "../layers.ts";
 import { canonicalHandle, type Edit, type EditStatement } from "./model.ts";
 
 /** Where an entity is: model space, a layout's paper by its name, or a block by its name. */
@@ -145,10 +146,34 @@ export function indexRead(read: DrawingRead): ReadIndex {
   return index;
 }
 
-/** The handles a statement names and what each takes with it, in the order it names them. */
+/**
+ * The handles a statement names and what each takes with it, in the order it names them: a
+ * change reaches its entity and the attributes it names, a viewport's change the viewport, and a
+ * layer's change its layer, as `layer:` and its name's key.
+ */
 export function reachOf(index: ReadIndex, statement: EditStatement): string[] {
+  if (statement.kind === "layer") return [`layer:${layerKey(statement.name)}`];
+
+  if (statement.kind === "viewport") return [canonicalHandle(statement.handle)];
+
+  if (statement.kind === "change") {
+    const h = canonicalHandle(statement.handle);
+    const at = index.byHandle.get(h);
+    const tags = statement.changes.attributes;
+
+    if (tags === undefined || at?.kind !== "entity" || at.entity.kind !== "insert") return [h];
+    const named = new Set(Object.keys(tags).map((t) => t.toUpperCase()));
+
+    return [
+      h,
+      ...(at.entity.attributes ?? []).flatMap((a) =>
+        a.handle !== undefined && named.has(a.tag.toUpperCase()) ? [canonicalHandle(a.handle)] : [],
+      ),
+    ];
+  }
+
   const out: string[] = [];
-  const names = statement.kind === "erase" || statement.kind === "move" ? statement.handles : [];
+  const names = statement.handles;
 
   // A handle named twice is reached once, and what it takes with it once.
   for (const handle of new Set(names.map(canonicalHandle))) {
@@ -176,12 +201,17 @@ export function reachOf(index: ReadIndex, statement: EditStatement): string[] {
   return out;
 }
 
-/** What an edit erases and what it moves, by handle, with each statement's place. */
+/** What an edit erases, moves and changes, by handle, with each statement's place. */
 export interface EditReach {
   /** Each erased handle, what an erasure takes with it among them, by its statement. */
   readonly erased: ReadonlyMap<string, number>;
   /** Each moved handle, what moves with it among them, by its statement. */
   readonly moved: ReadonlyMap<string, number>;
+  /**
+   * Each handle a change or a viewport's change reaches, the attributes it names among them, and
+   * each layer a layer's change reaches as `layer:` and its name's key, by its statement.
+   */
+  readonly changed: ReadonlyMap<string, number>;
   /** Each handle two statements reach, with the two. */
   readonly twice: readonly (readonly [handle: string, first: number, second: number])[];
 }
@@ -189,17 +219,21 @@ export interface EditReach {
 export function editReach(edit: Edit, index: ReadIndex): EditReach {
   const erased = new Map<string, number>();
   const moved = new Map<string, number>();
+  const changed = new Map<string, number>();
   const twice: [string, number, number][] = [];
   edit.statements.forEach((statement, i) => {
-    const into = statement.kind === "erase" ? erased : moved;
+    let into = changed;
+
+    if (statement.kind === "erase") into = erased;
+    else if (statement.kind === "move") into = moved;
 
     for (const h of new Set(reachOf(index, statement))) {
-      const first = erased.get(h) ?? moved.get(h);
+      const first = erased.get(h) ?? moved.get(h) ?? changed.get(h);
 
       if (first !== undefined) twice.push([h, first, i]);
       else into.set(h, i);
     }
   });
 
-  return { erased, moved, twice };
+  return { erased, moved, changed, twice };
 }

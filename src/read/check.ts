@@ -543,6 +543,7 @@ const DRAWING_READ: Fields = {
       "pdsize?": "number",
       "dimstyle?": "string",
       "textstyle?": "string",
+      "clayer?": "string",
       "wipeoutFrame?": "number",
     },
   },

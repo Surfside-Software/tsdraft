@@ -52,7 +52,7 @@ test("an edit with no statements writes a DXF of the 2018 format back byte for b
   }
 });
 
-test("an edit refuses a stale hash, another format, a binary DXF and a statement it does not make", () => {
+test("an edit refuses a stale hash, another format, a binary DXF and an addition", () => {
   const bytes = bytesOf(toDXF(sheet));
 
   const refused = (b: Uint8Array, edit: Edit, pattern: RegExp) =>
@@ -86,11 +86,6 @@ test("an edit refuses a stale hash, another format, a binary DXF and a statement
   refused(older, editOf(older), /format AC1015/);
   const binary = bytesOf(`${BINARY}\r\n\x1a\x00`);
   refused(binary, editOf(binary), /binary DXF/);
-  refused(
-    bytes,
-    editOf(bytes, { statements: [{ kind: "layer", name: "0", changes: { on: false } }] }),
-    /no layer statement/,
-  );
 
   const added = editOf(bytes, {
     additions: {
