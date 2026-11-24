@@ -1409,10 +1409,19 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
   const context: Record<number, string> = {};
   const after: Record<number, string> = {};
   const labels: { definition: string | undefined; text: string }[] = [];
+  let braces = false;
 
   for (let i = 0; i < c.length; i++) {
     const code = c[i]!;
     const value = v[i]!;
+
+    // An application's groups in braces are its own, not the multileader's.
+    if (code === 102) {
+      braces = value.trim().startsWith("{");
+      continue;
+    }
+
+    if (braces) continue;
     // The groups that open and close a part, as the leading CAD app writes them, may carry spaces.
     const mark = code >= 300 && code <= 305 ? value.trim() : value;
 
@@ -1520,6 +1529,7 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
     textAt,
     textAttachment: hasText ? number(context, 171, 1) : 1,
     width: hasText ? number(context, 43, 0) : 0,
+    ...(hasText && number(context, 44, 0) > 0 && { boxHeight: number(context, 44, 0) }),
     textHeight: number(context, 41, 0),
     textStyle: "Standard",
     arrowSize: number(context, 140, 0),

@@ -195,6 +195,13 @@ and every format its text does not replace.
   `%%` codes or a TrueType text justified Middle, a DXF keeps the start it holds, which a CAD
   program works out again when it reads the file, and a DWG, which stores the start a CAD
   program draws from, refuses the change.
+- `boxHeight: 0` fits a multileader's note box to its text. A file can store a box taller than
+  its note, and the leading CAD app sizes the note's mask by that height, so the mask can hide what
+  lies below. 0 is what the app writes for a new note that does not wrap, and the only height set.
+  The read gives the stored height as the note's `boxHeight`. The picture draws the mask as tall
+  as the note before and after, so the change shows in no picture and the changed sheets do not
+  list it. A multileader with no note, an annotative one, which holds a box for each scale, and a
+  note in columns are refused.
 - `attributes` changes an insert's attributes by tag, each as `text` is.
 - `layer`, `color` (1 to 255, 0 for ByBlock, 256 for ByLayer), `trueColor` (0xRRGGBB, with the
   nearest index beside it), `linetype` (one the file holds, `ByLayer` or `ByBlock`), `lineweight`

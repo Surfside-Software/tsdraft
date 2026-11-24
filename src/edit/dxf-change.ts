@@ -300,6 +300,48 @@ export function textSplices(
   return w.out;
 }
 
+/**
+ * The splice that fits a multileader's note box to its text: its context's own group 44 set to 0,
+ * as the leading CAD app writes a new note that does not wrap, or why it cannot. The context's own groups are those
+ * from `CONTEXT_DATA{` to its `}` outside each `LEADER{`; its first 290 says it holds a note, and
+ * group 293 after it that the multileader is annotative, with a context for each scale. A note in
+ * columns, the context's group 173, is refused: no case shows how its columns take the box.
+ */
+export function boxSplices(groups: readonly HeldGroup[]): Splice[] | string {
+  let where: "before" | "context" | "after" = "before";
+  let depth = 0;
+  let note: HeldGroup | undefined;
+  let box: HeldGroup | undefined;
+  let columns: HeldGroup | undefined;
+  let annotative = false;
+
+  for (const { g } of own(groups)) {
+    const mark = g.value.trim();
+
+    if (where === "before") {
+      if (g.code === 300 && mark === "CONTEXT_DATA{") where = "context";
+    } else if (where === "after") annotative ||= g.code === 293 && Number(g.value) === 1;
+    else if (g.code === 302 && mark.endsWith("{")) depth++;
+    else if (depth > 0 && g.code === 303) depth--;
+    else if (depth === 0 && g.code === 301) where = "after";
+    else if (depth === 0) {
+      if (g.code === 290) note ??= g;
+      else if (g.code === 44) box ??= g;
+      else if (g.code === 173) columns ??= g;
+    }
+  }
+
+  if (annotative) return "it is annotative, with a note box for each scale";
+
+  if (note === undefined || Number(note.value) !== 1 || box === undefined)
+    return "the multileader holds no note box";
+
+  if (columns !== undefined && Number(columns.value) !== 0)
+    return "its note is in columns, whose box a fit to the text is not made for";
+
+  return Number(box.value) === 0 ? [] : [numberAs(box, 0)];
+}
+
 /** The bits a host's AcXRefLayerPropertyOverride sets for each property of an xref's layer. */
 const OVERRIDES = {
   on: 1,

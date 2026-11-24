@@ -96,6 +96,11 @@ export interface EntityChanges {
   /** A text's height, and paragraph text's height and the width it wraps at, 0 for none. */
   readonly height?: number;
   readonly width?: number;
+  /**
+   * A multileader's note box, as tall as its text: the box the file stores can be taller, and the
+   * leading CAD app sizes the note's mask by it. Only 0, which fits the box to the text, is set.
+   */
+  readonly boxHeight?: 0;
   /** An insert's attributes, by tag. */
   readonly attributes?: Readonly<Record<string, TextChange>>;
   readonly layer?: string;

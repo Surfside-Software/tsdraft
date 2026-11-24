@@ -378,6 +378,7 @@ const ENTITY: EntityFields = {
     textAt: "point",
     textAttachment: "number",
     width: "number",
+    "boxHeight?": "number",
     textHeight: "number",
     textStyle: "string",
     arrowSize: "number",

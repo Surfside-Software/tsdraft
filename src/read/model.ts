@@ -812,6 +812,11 @@ export interface ReadMultileader extends ReadEntityBase {
   readonly textAttachment: number;
   /** The width the note wraps at, or 0 when it does not wrap. */
   readonly width: number;
+  /**
+   * The height of the note's box as the file stores it, when above 0. The leading CAD app sizes the
+   * note's mask by it, though it can be taller than the note.
+   */
+  readonly boxHeight?: number;
   /** The height of the note's text. */
   readonly textHeight: number;
   /** The note's text style. */

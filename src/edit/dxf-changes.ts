@@ -6,6 +6,7 @@ import type { DxfDocument } from "../read/document.ts";
 import type { DrawingRead, ReadAttribute, ReadEntity } from "../read/model.ts";
 import { changedEntity, changedViewport, layerNamed, linetypeNamed } from "./changed.ts";
 import {
+  boxSplices,
   headerSplice,
   layerSplices,
   penSplices,
@@ -48,16 +49,20 @@ export interface ChangeEdits {
   readonly erased: ReadonlyMap<number, number>;
 }
 
-/** The dictionary of a text's fields, which its extension dictionary names `ACAD_FIELD`, or undefined. */
-function fieldsOf(r: ChangeRecords, i: number): number | undefined {
+/** The record its extension dictionary names `name`, or undefined. */
+function extensionOf(r: ChangeRecords, i: number, name: string): number | undefined {
   const groups = r.groups(i);
   const at = groups.findIndex((g) => g.code === 102 && g.value.trim() === "{ACAD_XDICTIONARY");
   const h = at >= 0 ? groups[at + 1]?.value.trim() : undefined;
   const x = h === undefined ? undefined : r.byHandle.get(canonicalHandle(h));
-  const f = x === undefined ? undefined : r.dictionaryEntry(x, "ACAD_FIELD");
+  const f = x === undefined ? undefined : r.dictionaryEntry(x, name);
 
   return f === undefined ? undefined : r.byHandle.get(canonicalHandle(f));
 }
+
+/** The dictionary of a text's fields, which its extension dictionary names `ACAD_FIELD`, or undefined. */
+const fieldsOf = (r: ChangeRecords, i: number): number | undefined =>
+  extensionOf(r, i, "ACAD_FIELD");
 
 /** The changes of a text a change writes, from the entity before and after it. */
 function textValues(
@@ -200,6 +205,15 @@ export function changeSplices(r: ChangeRecords, edit: Edit, read: DrawingRead): 
 
         if (place === "AcDbText") down(i, before, after, statement, h);
         add(i, textSplices(r.groups(i), place, textValues(before, after, c.text, c)), statement, h);
+      }
+
+      if (c.boxHeight !== undefined) {
+        if (kind !== "MULTILEADER")
+          throw new EditError(`${h} is a ${kind}, which holds no note box`, statement);
+
+        if (extensionOf(r, i, "AcDbContextDataManager") !== undefined)
+          throw new EditError(`${h} is annotative, with a note box for each scale`, statement);
+        add(i, boxSplices(r.groups(i)), statement, h);
       }
 
       if (c.attributes !== undefined && before.kind === "insert" && after.kind === "insert") {

@@ -11,6 +11,14 @@
   such a style: a justified text or attribute, a paragraph in columns, a multileader, a dimension
   and a table. A file's style is now matched to the font it names in any spelling, such as
   `ROMANS.SHX`, or `cour.ttf` with no family.
+- `e.change(handle, { boxHeight: 0 })` fits a multileader's note box to its text. A file can
+  store a box taller than its note, and the leading CAD app sizes the note's mask by that height,
+  so the mask can hide what lies below the note. 0 is what the app writes for a new note that does
+  not wrap. A multileader with no note, an annotative one, a note in columns and an entity of
+  another kind are refused. The picture draws the mask as tall as the note, so the change shows in
+  no picture.
+- A read multileader's note gives `boxHeight`, the height of its box as the file stores it, when
+  above 0.
 
 ## 0.6.0
 

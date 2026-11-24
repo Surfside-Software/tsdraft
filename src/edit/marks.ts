@@ -46,7 +46,8 @@ const DIMENSION = ["textAt", "text", "textBelow", "style"];
 /**
  * The fields of each kind format 1 hashes. Left out: the handle, the mark, the order of drawing, and
  * what the leading CAD app works out again of itself: a justified text's start, a dimension's
- * picture and measurement, a fit spline's knots, and the handles of what an entity names.
+ * picture and measurement, a fit spline's knots, a multileader's stored note box, which its save
+ * of a wrapped note sets, and the handles of what an entity names.
  */
 const MARK_FIELDS = new Map<string, readonly string[]>(
   Object.entries({

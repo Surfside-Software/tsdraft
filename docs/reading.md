@@ -167,7 +167,9 @@ leader:
   does not, in `textStyle`. `attachments` says where a landing meets each side of the note,
   `vertical` that its landings meet the note's top or bottom, `frame` that a frame goes around the
   note, and `mask` that a mask is behind it: the drawing's background, or the color index `color`,
-  over the note's box grown by `offsetFactor` times its height less one. A block as its content
+  over the note's box grown by `offsetFactor` times its height less one. `boxHeight` is the height
+  of the note's box as the file stores it, when above 0: the leading CAD app sizes the mask by it,
+  and a box stored taller than the note hides what lies below. A block as its content
   has `text` `""`, `textAt` at the block, and `block`: its `name`, `at`, `scale`, `rotation` in
   degrees, and `attributes`, the value each of its labels gives, by the tag of the attribute
   definition it fills. A label whose definition the read does not hold is left out, and at most
