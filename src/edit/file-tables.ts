@@ -13,7 +13,7 @@ import type {
   TableStyle,
   TextStyle,
 } from "../drawing.ts";
-import { STANDARD_TEXT_STYLE } from "../fonts.ts";
+import { nearestFont, STANDARD_TEXT_STYLE } from "../fonts.ts";
 import { isString } from "../guards.ts";
 import { layerKey } from "../layers.ts";
 import type {
@@ -62,11 +62,17 @@ function linetypeOf(l: ReadLinetype): Linetype {
   return { name: l.name, description: l.description ?? "", pattern: [...l.pattern] };
 }
 
-/** A text style by the font it names: a TrueType family where it names one, else its file. */
+/**
+ * A text style by the font of `FONTS` it names, by its TrueType family or else its file, in any
+ * spelling `nearestFont` takes. A font not in `FONTS`, such as a firm's Baskerville Old Face,
+ * stands in as the nearest one: an edit writes no style of the file's, so the stand-in only
+ * measures what the additions draw, and `lintEdit` refuses an addition whose layout the writers
+ * would work out from the stand-in's widths.
+ */
 function textStyleOf(s: ReadTextStyle): TextStyle {
   return {
     name: s.name,
-    font: s.family ?? s.font ?? "txt.shx",
+    font: nearestFont(s.family ?? s.font ?? "txt.shx").font,
     ...(s.widthFactor !== undefined && s.widthFactor !== 1 && { widthFactor: s.widthFactor }),
     ...(s.oblique !== undefined && s.oblique !== 0 && { obliqueAngle: s.oblique }),
   };

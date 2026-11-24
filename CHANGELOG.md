@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- An edit changes an xref layer's linetype in its host, as `e.layer("SURVEY|BOUNDARY", { linetype:
+  "SURVEY|PHANTOM2" })`, to a linetype the host holds. Both writers mark it as the host's override,
+  so a reload of the xref keeps it.
+- An edit's additions may use a text style of the file whose font tsdraft does not hold, such as a
+  firm's Baskerville Old Face, for a text justified left and a paragraph of one column, which the
+  leading CAD app lays out itself. What tsdraft would lay out from the font's widths is refused in
+  such a style: a justified text or attribute, a paragraph in columns, a multileader, a dimension
+  and a table. A file's style is now matched to the font it names in any spelling, such as
+  `ROMANS.SHX`, or `cour.ttf` with no family.
+
 ## 0.6.0
 
 tsdraft edits a firm's own drawings, with no CAD program: an edit file erases, moves, stretches,

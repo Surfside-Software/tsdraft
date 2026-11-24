@@ -206,8 +206,8 @@ and every format its text does not replace.
 `color`, `trueColor`, `linetype` and `lineweight`. A host changes an xref's layer, `XREF|LAYER`,
 in its own record, marked as the host's override so a reload of the xref keeps it, and sets
 `$VISRETAIN` to 1, without which a host keeps no change of an xref's layer. A DWG host whose
-`VISRETAIN` is 0 holds no record of an xref's layers, and such a change is refused there. A
-change of an xref layer's linetype is not made yet.
+`VISRETAIN` is 0 holds no record of an xref's layers, and such a change is refused there. An
+xref layer's linetype is one the host holds, its own or the xref's, such as `SURVEY|PHANTOM2`.
 
 `e.viewport(handle, changes)` re-aims a viewport: `center` is the point of model space at its
 middle, `ratio` its scale in paper units to drawing units, `twist` its view turned in degrees.
@@ -251,6 +251,11 @@ file lacks is defined by the edit. The file's own `Standard` multileader, dimens
 are named `Standard`. Under a standard, a text role's and a leader style's `styleName` names the
 firm's style: in an edit of a file that holds it, the addition draws in it, and a new drawing that
 draws to a `styleName` of `Standard` is refused. Every addition names its layer.
+
+A style of the file whose font tsdraft does not hold, such as a firm's Baskerville Old Face, takes a
+text justified left and a paragraph of one column, which the leading CAD app lays out itself; a
+justified text or attribute, a paragraph in columns, a multileader, a dimension and a table in it
+are refused, since tsdraft would work out where they go from another font's widths.
 
 An entity takes its own `linetypeScale`, group 48, and a dimension its own `scale`, `DIMSCALE`,
 which the writers write as the dimension's override of its style's, the extended data `ACAD`,

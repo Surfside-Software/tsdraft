@@ -314,3 +314,99 @@ test("an addition with no id on a layout named layers is erased by an edit of it
     [],
   );
 });
+
+test("a style of the file in a font tsdraft does not hold takes a paragraph, and refuses what tsdraft would lay out in it", async () => {
+  const d = createDrawing({ units: "in" });
+  d.textStyle({ name: "TB-TITLE", font: "Arial" });
+  d.textStyle({ name: "CAPS", font: "romans.shx" });
+  d.dimensionStyle({
+    name: "TB-DIMS",
+    textStyle: "TB-TITLE",
+    textHeight: 2,
+    arrowhead: "closed-filled",
+    arrowSize: 1,
+    extensionOffset: 0.5,
+    extensionBeyond: 1,
+    textGap: 0.5,
+    scale: 1,
+    precision: 1,
+  });
+  d.block("TAG", {}, () =>
+    d.attribute("NO", [0, 0], { value: "1", height: 2, style: "TB-TITLE", align: "center" }),
+  );
+  d.layer("A-NOTE", { color: 2 }, () => d.line([0, 0], [100, 0]));
+
+  // The file names Baskerville Old Face, and romans.shx in capitals, as an older file may.
+  const bytes = new TextEncoder().encode(
+    toDXF(d.build())
+      .replace("\r\n3\r\narial.ttf\r\n", "\r\n3\r\nBASKVILL.TTF\r\n")
+      .replace("\r\n1000\r\nArial\r\n", "\r\n1000\r\nBaskerville Old Face\r\n")
+      .replace("\r\n3\r\nromans.shx\r\n", "\r\n3\r\nROMANS.SHX\r\n"),
+  );
+
+  const { errors, out } = await edited(bytes, "rev-1", (e) =>
+    e.model((d) =>
+      d.layer("A-NOTE", () => {
+        d.paragraph("{\\LNOTE:}", { at: [0, 10], height: 2, style: "TB-TITLE", id: "head" });
+        d.text([0, 20], "CAPS", { height: 2, style: "CAPS", align: "center", id: "caps" });
+      }),
+    ),
+  );
+
+  assert.deepEqual(errors, []);
+  const back = await geometry(out!);
+
+  assert.equal(back.textStyles.find((s) => s.name === "TB-TITLE")?.family, "Baskerville Old Face");
+  const head = added(back).find((e) => e.mark?.id === "head");
+
+  assert.equal(head?.kind === "mtext" && head.style, "TB-TITLE");
+
+  type Builder = Parameters<Parameters<EditBuilder["model"]>[0]>[0];
+
+  const refused = async (draw: (d: Builder) => void): Promise<string> =>
+    (await edited(bytes, "rev-1", (e) => e.model((d) => d.layer("A-NOTE", () => draw(d)))))
+      .errors[0]?.message ?? "";
+
+  assert.match(
+    await refused((d) =>
+      d.text([0, 10], "NOTE", { height: 2, style: "TB-TITLE", align: "center" }),
+    ),
+    /justified text in the file's TB-TITLE/,
+  );
+  assert.match(
+    await refused((d) => d.insert("TAG", [0, 0], { attributes: { NO: "WIDE VALUE" } })),
+    /laid out by tsdraft in the file's text style TB-TITLE/,
+  );
+  assert.match(
+    await refused((d) => d.linearDimension([0, 0], [8, 0], [0, -5], { style: "TB-DIMS" })),
+    /laid out by tsdraft in the file's text style TB-TITLE/,
+  );
+  // A style and a block the edit defines itself are held to the same.
+  assert.match(
+    await refused((d) => {
+      d.dimensionStyle({
+        name: "NEW-DIMS",
+        textStyle: "TB-TITLE",
+        textHeight: 2,
+        arrowhead: "closed-filled",
+        arrowSize: 1,
+        extensionOffset: 0.5,
+        extensionBeyond: 1,
+        textGap: 0.5,
+        scale: 1,
+        precision: 1,
+      });
+      d.linearDimension([0, 0], [8, 0], [0, -5], { style: "NEW-DIMS" });
+    }),
+    /laid out by tsdraft in the file's text style TB-TITLE/,
+  );
+  assert.match(
+    await refused((d) => {
+      d.block("SIGN", {}, () =>
+        d.text([0, 0], "SIGN", { height: 2, style: "TB-TITLE", align: "center" }),
+      );
+      d.insert("SIGN", [0, 0]);
+    }),
+    /block SIGN the edit adds holds a justified text laid out by tsdraft in the file's text style TB-TITLE/,
+  );
+});

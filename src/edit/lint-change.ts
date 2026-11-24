@@ -176,15 +176,6 @@ export function layerChangeProblems(
       ),
     );
 
-  if (layer.xref && c.linetype !== undefined)
-    // The bit a host's AcXRefLayerPropertyOverride sets for a linetype is not known yet.
-    out.push(
-      error(
-        "edit-layer",
-        `${layer.name} is an xref's layer, whose linetype a host's change is not made of yet`,
-      ),
-    );
-
   const current = read.header.clayer ?? "0";
 
   if (c.frozen === true && layerKey(layer.name) === layerKey(current))

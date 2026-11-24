@@ -2,9 +2,10 @@
 // and stays bounded on any value, as `lint` does: the edit's shape is checked first, each handle is
 // paid for before it is worked, and what goes past the limit is one diagnostic.
 import type { CallSite } from "../callsite.ts";
+import { nearestFont } from "../fonts.ts";
 import { layerKey } from "../layers.ts";
 import { OUTSIDE_THE_READ, partFilter, type PartFilter } from "../read/part.ts";
-import type { DrawingRead, ReadEntity } from "../read/model.ts";
+import type { DrawingRead, ReadEntity, ReadTable } from "../read/model.ts";
 import { addedOf, readAdditionsFile, type Added } from "./added.ts";
 import { canonicalHandle, checkEdit, MADE_KINDS, statementCall, type Edit } from "./model.ts";
 import { replacement, writesAdditions } from "./replaced.ts";
@@ -27,6 +28,16 @@ const absoluteHeight = (value: string): boolean => {
     if (m[0] !== "\\\\" && m[1] === "") return true;
 
   return false;
+};
+
+/** What a refusal in a block calls an entity of each kind tsdraft lays out itself. */
+const KIND_NAMES: Partial<Record<ReadEntity["kind"], string>> = {
+  text: "a justified text",
+  insert: "an insert with a justified attribute",
+  mtext: "a paragraph in columns",
+  multileader: "a multileader",
+  dimension: "a dimension",
+  table: "a table",
 };
 
 /** True when an entity holds paragraph text with a height of its own, which a scale leaves. */
@@ -649,27 +660,116 @@ function lintAdditions(edit: Edit, read: DrawingRead, report: (d: EditDiagnostic
     read.dimensionStyles.filter((d) => (d.textLevelInside ?? 1) === 1).map((d) => layerKey(d.name)),
   );
 
-  // The file's own Standard, whose font the builder does not take: it measures Standard in its
-  // own font, so a justified text there would start where the file's font does not put it.
-  const standard = read.textStyles.find((t) => layerKey(t.name) === "standard");
-
-  const otherStandard =
-    standard !== undefined && (standard.font ?? "").toLowerCase().replace(/\.shx$/, "") !== "txt";
-
-  for (const space of added.spaces)
-    for (const e of space.entities) {
-      if (
-        otherStandard &&
-        e.kind === "text" &&
-        e.alignAt !== undefined &&
-        layerKey(e.style) === "standard"
+  // The file's styles whose font the builder does not take, so a justified text in one would
+  // start where the file's font does not put it: its own Standard, which the builder measures in
+  // txt.shx, and a style in a font not in FONTS, which it measures in a stand-in.
+  const unmeasured = new Map(
+    read.textStyles
+      .filter((t) =>
+        layerKey(t.name) === "standard"
+          ? (t.font ?? "").toLowerCase().replace(/\.shx$/, "") !== "txt"
+          : !nearestFont(t.family ?? t.font ?? "txt.shx").exact,
       )
+      .map((t) => [layerKey(t.name), t.name]),
+  );
+
+  // Of those, the styles in a stand-in font, where every width the writers work out from the
+  // font would be the stand-in's: what the leading CAD app lays out itself is all they take.
+  const standIn = (name: string | undefined): string | undefined =>
+    name === undefined || layerKey(name) === "standard"
+      ? undefined
+      : unmeasured.get(layerKey(name));
+
+  // The file's styles and those the edit adds alike.
+  const dimensionStyles = [...read.dimensionStyles, ...added.dimensionStyles];
+  const tableStyles = [...read.tableStyles, ...added.tableStyles];
+
+  const dimensionText = (style: string): string | undefined =>
+    standIn(dimensionStyles.find((s) => layerKey(s.name) === layerKey(style))?.textStyle);
+
+  // Of a table, the cell styles of the rows that hold text: the title's, the header's, the data's.
+  const tableText = (t: ReadTable): string | undefined => {
+    const s = tableStyles.find(
+      (x) => t.style !== undefined && layerKey(x.name) === layerKey(t.style),
+    );
+
+    if (s === undefined) return undefined;
+    const first = (t.title ? 1 : 0) + (t.header ? 1 : 0);
+
+    const holds = (from: number, to: number): boolean =>
+      t.cells.some((c) => c.row >= from && c.row < to && (c.text ?? "") !== "");
+
+    return [
+      t.title && holds(0, 1) ? s.title : undefined,
+      t.header && holds(first - 1, first) ? s.header : undefined,
+      holds(first, Infinity) ? s.data : undefined,
+    ]
+      .map((c) => standIn(c?.textStyle))
+      .find((n) => n);
+  };
+
+  // The stand-in style a kind tsdraft lays out itself is drawn in, if any.
+  const laidOutIn = (e: ReadEntity): string | undefined => {
+    switch (e.kind) {
+      case "insert":
+        return e.attributes
+          ?.filter((a) => a.alignAt !== undefined && a.paragraph === undefined)
+          .map((a) => standIn(a.style))
+          .find((n) => n);
+      case "mtext":
+        return e.columns === undefined ? undefined : standIn(e.style);
+      case "multileader":
+        return standIn(e.textStyle);
+      case "dimension":
+        return dimensionText(e.style);
+      case "table":
+        return tableText(e);
+      default:
+        return undefined;
+    }
+  };
+
+  // A block the edit defines is drawn where each insert puts it, as tsdraft laid it out.
+  for (const b of added.blocks)
+    for (const e of b.entities) {
+      const style =
+        (e.kind === "text" && e.alignAt !== undefined
+          ? unmeasured.get(layerKey(e.style))
+          : undefined) ?? laidOutIn(e);
+
+      if (style !== undefined)
         report({
           rule: "edit-addition",
           severity: "error",
           ...(e.handle !== undefined && { handle: e.handle }),
-          message: `The addition ${e.mark?.id ?? e.handle ?? ""} is a justified text in the file's Standard, whose font tsdraft does not measure it in: justify it left, or name another of the file's styles`,
+          message: `The block ${b.name} the edit adds holds ${KIND_NAMES[e.kind] ?? e.kind} laid out by tsdraft in the file's text style ${style}, whose font tsdraft does not measure it in: only a text justified left and a paragraph of one column may be drawn in it`,
         });
+    }
+
+  for (const space of added.spaces)
+    for (const e of space.entities) {
+      const style = e.kind === "text" ? unmeasured.get(layerKey(e.style)) : undefined;
+      const id = e.mark?.id ?? e.handle ?? "";
+
+      const refuse = (message: string): void =>
+        report({
+          rule: "edit-addition",
+          severity: "error",
+          ...(e.handle !== undefined && { handle: e.handle }),
+          message,
+        });
+
+      if (e.kind === "text" && e.alignAt !== undefined && style !== undefined)
+        refuse(
+          `The addition ${id} is a justified text in the file's ${style}, whose font tsdraft does not measure it in: justify it left, or name another of the file's styles`,
+        );
+
+      const laidOut = laidOutIn(e);
+
+      if (laidOut !== undefined)
+        refuse(
+          `The addition ${id} is laid out by tsdraft in the file's text style ${laidOut}, whose font tsdraft does not hold: only a text justified left and a paragraph of one column may be drawn in it`,
+        );
 
       // tsdraft draws a dimension's text along its line, which a style that keeps it level
       // draws otherwise wherever the line is not level.

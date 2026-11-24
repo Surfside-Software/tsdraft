@@ -301,7 +301,15 @@ export function textSplices(
 }
 
 /** The bits a host's AcXRefLayerPropertyOverride sets for each property of an xref's layer. */
-const OVERRIDES = { on: 1, frozen: 2, locked: 4, plot: 8, lineweight: 64, color: 0x110 } as const;
+const OVERRIDES = {
+  on: 1,
+  frozen: 2,
+  locked: 4,
+  plot: 8,
+  linetype: 32,
+  lineweight: 64,
+  color: 0x110,
+} as const;
 
 /** The splices of a layer's change, or a reason it cannot be made. */
 export function layerSplices(
@@ -372,7 +380,7 @@ export function layerSplices(
     // A host marks each property of an xref's layer it overrides, so a reload of the xref keeps it.
     let bits = 0;
 
-    for (const key of ["on", "frozen", "locked", "plot", "lineweight"] as const)
+    for (const key of ["on", "frozen", "locked", "plot", "linetype", "lineweight"] as const)
       if (c[key] !== undefined) bits |= OVERRIDES[key];
 
     if (c.color !== undefined || c.trueColor !== undefined) bits |= OVERRIDES.color;
