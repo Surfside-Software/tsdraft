@@ -11,6 +11,8 @@
     },
     {
       "files": [
+        "cli/src/mcp.ts",
+        "cli/src/program.ts",
         "cli/src/worker.ts",
         "src/colors.ts",
         "src/drawing.ts",

@@ -148,6 +148,15 @@ the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet t
 with each TrueType font embedded from the file the PNG is set in. `outputs.layouts[].pdfFonts`
 names it, and says `Helvetica`, `Times-Roman` or `Courier` where the machine has no file.
 
+### Through MCP
+
+Where the harness speaks MCP, `tsdraft mcp` gives the same loop as two tools, and saves the
+tokens a whole JSON costs. `render` answers with a brief, the errors and warnings at the calls
+that made them, and the pictures as images, so step 3 and step 4 are one call. `execute` runs a
+JavaScript program over a build or a read file and answers with only what it returns, such as
+`return (await render("plan.ts")).drawing.inserts.filter((i) => i.block === "DOOR").length`.
+[The MCP server](docs/command.md#the-mcp-server) has both.
+
 ## What the JSON holds
 
 `render` printed this for the file above, shortened here to what you read first:

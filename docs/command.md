@@ -143,6 +143,67 @@ tsdraft shows A-102.dwg --sheet A-102 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.d
 tsdraft shows A-102.dwg --sheet A-102 --near 12.5,8 --within 0.25 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
 ```
 
+## The MCP server
+
+`tsdraft mcp` serves the command as an [MCP](https://modelcontextprotocol.io) server on stdin and
+stdout, for an agent whose harness speaks MCP. A harness starts it as a command, from the
+project's folder:
+
+```sh
+claude mcp add tsdraft -- npx tsdraft mcp
+```
+
+It has two tools. Paths in either are from the folder it was started in.
+
+`render` builds a drawing file once, as `tsdraft render` does, and writes the same pictures to the
+same `out/` folder. It answers with a brief of the build as JSON, a few hundred to a few thousand
+characters where the whole JSON of a set of sheets can pass a hundred thousand, and with the first
+pictures as images, 2 unless `images` says another number from 0 to 8: the view, then an edit's
+pictures of changes, then each layout's sheet, then model space. Only those pictures get a PNG,
+and each other picture has its SVG alone, with a `png` of `null`, and in the whole BuildState a
+`pngError` that says it was not drawn. Its options
+are the flags of `render`: `view`, `layout`, `pdf`, `drawNoPlot`, `width`, `timeout` and `reader`,
+held to the same rules. The brief gives:
+
+| Field         | What it is                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------- |
+| `ok`, `code`  | Whether the file built, and the exit code `render` would give: 0, 2 for lint errors, 1       |
+| `error`       | Why the build failed, with `at`, the line to fix, as `file:line:column`                      |
+| `counts`      | `drawing.counts`, with `units` and `extents` beside it                                       |
+| `layouts`     | Each layout, its paper and its number of viewports                                           |
+| `rules`       | Every diagnostic, counted by its rule                                                        |
+| `diagnostics` | The first 12, errors first, each with `at`, the call that made it, `where` and `bounds`      |
+| `more`        | How many diagnostics `diagnostics` leaves out                                                |
+| `pictures`    | Each picture, what it `shows`, its `svg` and `png` paths, and `attached` when it is an image |
+| `pdf`, `log`  | The set's PDF, with `pdf`, and the end of what the drawing file printed                      |
+
+`execute` runs a JavaScript program, the body of an async function, in a process of its own, and
+answers with only what the program returns: a build of a whole set never passes through the
+agent's context unless the program returns it. The program has `render(file, options)`, which
+builds as the tool does and gives the whole BuildState of [The JSON](#the-json), drawing a PNG of
+the first `pngs` pictures only, none unless it asks; `brief(state)`, the brief of a state `render` gave;
+`shows(file, options)`, the JSON of `tsdraft shows` with its flags as `sheet`, `layout`, `near`,
+`within`, `xrefs` and `reader`; `show(png)`, which attaches a PNG to the answer as an image, up to
+8; and `tsdraft`, the library. It answers `{"ok":true,"value":...,"logs":"..."}`, with what the
+program printed in `logs`, or `{"ok":false,"error":{"kind","message","line","column"}}`, whose
+`kind` is `SyntaxError`, `Uncaught`, `NotJSON`, `TooLarge`, `Timeout` or `Exit`. A value whose
+JSON is longer than 40,000 characters is refused, never cut, and the error says what it held. A
+program runs for 2 minutes unless `timeout` says otherwise, up to 10, and its process ends when it
+answers, so a timer it leaves does not outlive it, and no global of one program reaches the next.
+A program is no sandbox: it runs with the permissions of the user who started the server, as a
+drawing file does when it builds, so add the server only for an agent that may already run code
+there. A program that fails, like a build that fails, is answered with `isError` set, and a
+render that a program left waiting when it ended is not started.
+
+```js
+const s = await render("plan.ts", { pngs: 1 });
+show(s.outputs.layouts[0].png);
+return s.drawing.layouts.map((l) => ({ name: l.name, scales: l.viewports.map((v) => v.ratio) }));
+```
+
+Builds run one at a time. The server keeps a process waiting with the library loaded between
+calls, as `tsdraft dev` does, and ends with its input.
+
 ## A closer look
 
 A whole sheet in one picture leaves its text too small to read: on an ARCH D sheet 1600 px

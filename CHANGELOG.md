@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `tsdraft mcp` serves the command as an MCP server, for an agent whose harness speaks MCP. Its
+  `render` tool builds a drawing file as `tsdraft render` does and answers with a brief of the
+  build, the counts, the first diagnostics at the calls that made them and the pictures as
+  images, in place of the whole JSON, which for a set of sheets can pass a hundred thousand
+  characters. It rasterizes only the PNGs it attaches. Its `execute` tool runs a JavaScript
+  program over builds and read files in a process of its own, and answers with only what the
+  program returns.
 - An edit changes an xref layer's linetype in its host, as `e.layer("SURVEY|BOUNDARY", { linetype:
   "SURVEY|PHANTOM2" })`, to a linetype the host holds. Both writers mark it as the host's override,
   so a reload of the xref keeps it.

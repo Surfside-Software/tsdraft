@@ -1,15 +1,11 @@
 #!/usr/bin/env node
 // The tsdraft command. `render` builds a drawing file once and prints a BuildState as JSON;
 // `dev` serves a live preview that rebuilds on every save.
-import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { Builder, projectRoot, round, toState } from "./build.ts";
-import { faces, pdfFonts, pngFonts } from "./fonts.ts";
-import { isString } from "./guards.ts";
-import { pngUnavailable, RendererCrashed, startRenderer, toPNG } from "./png.ts";
-import type { BuildError, BuildState, ChangesOutput, LayoutOutput, ViewOutput } from "./state.ts";
+import { Builder } from "./build.ts";
+import { render } from "./render.ts";
 import type { WriteOptions } from "./write.ts";
 
 // A drawing file is TypeScript, which Node runs by stripping its types: from 22.18, or 23.6.
@@ -30,6 +26,7 @@ const HELP = `Usage:
   tsdraft shows <drawing file> [--sheet <layout> | --layout <layout>]
                 [--near <x,y> [--within <d>]] [--xref <name>=<file>]... [--reader <package>]
   tsdraft write <edit file>... [--out <dir>] [--root <dir>] [--reader <package>]
+  tsdraft mcp
 
 A drawing file is a TypeScript module whose default export is a Drawing, or a
 function that returns one. It may also be a DXF, or a DWG that a reader the
@@ -74,6 +71,12 @@ dev     Serves a live preview on localhost that rebuilds on every save of the
         /drawing.pdf, the set, and /events. Add layout=<name> to a picture's URL
         for a layout's sheet, and for an edit file changes=1 for the picture of
         what it changes.
+
+mcp     Serves the command as an MCP server on stdin and stdout, for an agent
+        whose harness speaks MCP, such as \`claude mcp add tsdraft -- npx tsdraft mcp\`.
+        Its tool render builds a file as render does and answers with a short
+        brief of the build and the pictures as images; execute runs a JavaScript
+        program over builds and reads, and answers with only what it returns.
 
 write   Makes the edited copy of the file each edit file names, and prints the
         job as JSON. An edit file is a TypeScript module whose default export is
@@ -173,8 +176,15 @@ if (values.help) {
   process.exit(0);
 }
 
-if (!command || !["render", "dev", "shows", "write"].includes(command)) {
-  usage("Give a command: render, dev, shows or write.");
+if (!command || !["render", "dev", "shows", "write", "mcp"].includes(command)) {
+  usage("Give a command: render, dev, shows, write or mcp.");
+}
+
+if (command === "mcp") {
+  if (positionals.length > 1 || Object.keys(values).length > 0) usage("mcp takes nothing more.");
+  const { serve } = await import("./mcp.ts");
+  await serve();
+  process.exit(0);
 }
 
 if (command === "write") {
@@ -296,303 +306,17 @@ if (command === "dev") {
       view && (values.layout === undefined ? { box: view } : { box: view, layout: values.layout }),
   });
 
-  // The plotter loads only for --pdf, and before anything is built or written, as a static
-  // import would: a plotter that fails to load stops the command first.
-  const pdf = values.pdf ? await import("./pdf.ts") : undefined;
-  // The renderer's process starts while the drawing is built. Its modules load before the
-  // build starts, so their load time never counts against the drawing's --timeout.
-  startRenderer();
-  let pngMs: number | undefined;
-  const building = builder.build(file, projectRoot(file));
-  // The machine's fonts are looked for while the drawing is built.
-  faces();
-  const outcome = (await building)!;
-  builder.close();
+  const { state, code } = await render(file, {
+    builder,
+    closeBuilder: true,
+    width,
+    pdf: values.pdf === true,
+    ...(values.out !== undefined && { out: values.out }),
+    ...(view !== undefined && { view }),
+  });
 
-  type Mutable<T> = { -readonly [K in keyof T]: T[K] };
-
-  const layouts: Mutable<LayoutOutput>[] = [];
-
-  /**
-   * Draws a picture's PNG and writes it. When the renderer dies on the picture, gives the
-   * reason, and the rest of the run goes on: the SVG is written, and so is every other picture.
-   */
-  const drawPng = async (svg: string, to: string): Promise<string | null> => {
-    const t = performance.now();
-
-    try {
-      const { png } = await toPNG(svg, width);
-      writeFileSync(to, png);
-
-      return null;
-    } catch (error) {
-      if (!(error instanceof RendererCrashed)) throw error;
-      process.stderr.write(`tsdraft: ${error.message}.\n`);
-
-      return error.message;
-    } finally {
-      pngMs = (pngMs ?? 0) + performance.now() - t;
-    }
-  };
-
-  const outputs: Mutable<BuildState["outputs"]> = {
-    svg: null,
-    png: null,
-    pngError: null,
-    pngFonts: [],
-    layouts,
-    view: null,
-    pdf: null,
-    pdfError: null,
-    changes: null,
-  };
-
-  let failed: BuildError | null = null;
-  const dir = resolve(values.out ?? join(file, "..", "out"));
-  const name = basename(file, extname(file));
-  let path = dir;
-
-  try {
-    if (outcome.ok && outcome.view && view) {
-      // A view is the one picture of its run.
-      mkdirSync(dir, { recursive: true });
-      path = join(dir, `${name}.view.svg`);
-      writeFileSync(path, outcome.view.svg);
-      const unavailable = pngUnavailable();
-
-      const made: ViewOutput = {
-        layout: outcome.view.layout,
-        box: { min: [view[0], view[1]], max: [view[2], view[3]] },
-        svg: path,
-        png: null,
-        pngError: unavailable,
-        pngFonts: pngFonts(outcome.view.fonts, outcome.view.svg),
-      };
-
-      outputs.view = made;
-
-      if (unavailable === null) {
-        path = join(dir, `${name}.view.png`);
-        const pngError = await drawPng(outcome.view.svg, path);
-        outputs.view = { ...made, pngError, png: pngError === null ? path : null };
-      } else {
-        process.stderr.write(`tsdraft: ${unavailable}.\n`);
-      }
-    } else if (outcome.ok && outcome.svg) {
-      mkdirSync(dir, { recursive: true });
-      path = join(dir, `${name}.svg`);
-      writeFileSync(path, outcome.svg);
-      outputs.svg = path;
-      outputs.pngFonts = pngFonts(outcome.fonts, outcome.svg);
-      // Without the optional renderer the drawing still built: the JSON says why no PNG.
-      const unavailable = pngUnavailable();
-      outputs.pngError = unavailable;
-
-      if (outputs.pngError === null) {
-        path = join(dir, `${name}.png`);
-        outputs.pngError = await drawPng(outcome.svg, path);
-
-        if (outputs.pngError === null) outputs.png = path;
-      } else {
-        process.stderr.write(`tsdraft: ${outputs.pngError}.\n`);
-      }
-
-      // Each layout's sheet, beside the picture of model space.
-      const taken = new Set<string>();
-      const sheets: { stem: string; svg: string }[] = [];
-
-      for (const sheet of outcome.layouts) {
-        const stem = layoutFile(name, sheet.name, taken);
-        path = join(dir, `${stem}.svg`);
-        writeFileSync(path, sheet.svg);
-
-        const made: Mutable<LayoutOutput> = {
-          name: sheet.name,
-          ...(sheet.file !== undefined && { file: sheet.file }),
-          svg: path,
-          png: null,
-          pngError: unavailable,
-          pngFonts: pngFonts(sheet.fonts, sheet.svg),
-          pdf: null,
-          pdfError: null,
-          pdfFonts: pdfFonts(sheet.fonts),
-          pdfMissing: null,
-        };
-
-        if (unavailable === null) {
-          path = join(dir, `${stem}.png`);
-          made.pngError = await drawPng(sheet.svg, path);
-
-          if (made.pngError === null) made.png = path;
-        }
-
-        layouts.push(made);
-        sheets.push({ stem, svg: sheet.svg });
-      }
-
-      // An edit's pictures of what it changes, each beside the picture it marks.
-      if (outcome.changes) {
-        const write = async (svg: string, stem: string) => {
-          path = join(dir, `${stem}.svg`);
-          writeFileSync(path, svg);
-          const svgPath = path;
-          let pngError = unavailable;
-          let png: string | null = null;
-
-          if (unavailable === null) {
-            path = join(dir, `${stem}.png`);
-            pngError = await drawPng(svg, path);
-
-            if (pngError === null) png = path;
-          }
-
-          return { svg: svgPath, png, pngError };
-        };
-
-        const model =
-          outcome.changes.svg === null ? null : await write(outcome.changes.svg, `${name}.changes`);
-
-        const changed: Mutable<ChangesOutput> = {
-          svg: model?.svg ?? null,
-          png: model?.png ?? null,
-          pngError: model?.pngError ?? null,
-          layouts: [],
-        };
-
-        for (const [i, sheet] of outcome.changes.layouts.entries()) {
-          const stem = sheets[i]?.stem ?? layoutFile(name, sheet.name, taken);
-          changed.layouts = [
-            ...changed.layouts,
-            { name: sheet.name, ...(await write(sheet.svg, `${stem}.changes`)) },
-          ];
-        }
-
-        outputs.changes = changed;
-      }
-
-      // Each sheet, then the set: a page for each sheet, in the order of the layouts.
-      if (values.pdf && sheets.length > 0) {
-        const { plot } = pdf!;
-        const omitted = outcome.drawing?.omitted?.length ?? 0;
-
-        if (omitted > 0) {
-          outputs.pdfError =
-            "The build left out what lint refused, which drawing.omitted lists, so its sheets are not plotted";
-
-          for (const made of layouts) made.pdfError = outputs.pdfError;
-        } else {
-          for (const [i, sheet] of sheets.entries()) {
-            const made = layouts[i]!;
-            const plotted = await plot([sheet.svg]);
-            made.pdfError = plotted.error;
-
-            if (plotted.pdf) {
-              path = join(dir, `${sheet.stem}.pdf`);
-              writeFileSync(path, plotted.pdf);
-              made.pdf = path;
-              made.pdfMissing = plotted.missing[0] ?? "";
-            }
-          }
-
-          const unplotted = layouts.find((made) => made.pdf === null);
-
-          if (unplotted) {
-            outputs.pdfError = `The sheet ${JSON.stringify(unplotted.name)} could not be plotted, so the set is not`;
-          } else {
-            const plotted = await plot(sheets.map((sheet) => sheet.svg));
-            outputs.pdfError = plotted.error;
-
-            if (plotted.pdf) {
-              path = join(dir, `${name}.pdf`);
-              writeFileSync(path, plotted.pdf);
-              outputs.pdf = path;
-            }
-          }
-        }
-      }
-    }
-  } catch (error) {
-    failed = outputError(`Could not write ${path}`, error);
-  }
-
-  // Only the default folder belongs to the command. A file in --out may be the user's.
-  if (values.out === undefined) {
-    const removeOld = (old: string): void => {
-      try {
-        rmSync(old, { force: true });
-      } catch (error) {
-        if (outcome.ok) failed ??= outputError(`Could not remove the old ${old}`, error);
-      }
-    };
-
-    for (const [kind, written] of Object.entries({
-      svg: outputs.svg,
-      png: outputs.png,
-      "view.svg": outputs.view?.svg ?? null,
-      "view.png": outputs.view?.png ?? null,
-      "changes.svg": outputs.changes?.svg ?? null,
-      "changes.png": outputs.changes?.png ?? null,
-      pdf: outputs.pdf,
-    })) {
-      if (written === null) removeOld(join(dir, `${name}.${kind}`));
-    }
-
-    if (existsSync(dir)) {
-      const kept = new Set([
-        ...layouts.flatMap((made) => [made.svg, made.png, made.pdf]),
-        ...(outputs.changes?.layouts ?? []).flatMap((made) => [made.svg, made.png]),
-      ]);
-
-      for (const entry of readdirSync(dir)) {
-        if (!entry.startsWith(`${name}.layout-`) || !/\.(svg|png|pdf)$/.test(entry)) continue;
-        const old = join(dir, entry);
-
-        if (!kept.has(old)) removeOld(old);
-      }
-    }
-  }
-
-  const state = toState(outcome, randomUUID().slice(0, 8), 1, file, outcome.ok ? 1 : null, outputs);
-  const timings = pngMs === undefined ? state.timings : { ...state.timings, png: round(pngMs) };
-
-  const result: BuildState = failed
-    ? { ...state, ok: false, error: failed, timings }
-    : { ...state, timings };
-
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  const errors = state.drawing?.counts.errors ?? 0;
-  process.exitCode = outcome.linted || (result.ok && errors > 0) ? 2 : result.ok ? 0 : 1;
-}
-
-/**
- * The name of a layout's pictures, without an extension: the drawing file's name, `.layout-`
- * and the layout's name with every character a file name may not hold as `_`. A second layout
- * that comes to the same name has a number after it.
- */
-function layoutFile(name: string, layout: string, taken: Set<string>): string {
-  const safe = layout.replaceAll(/[^A-Za-z0-9._-]/g, "_");
-  let stem = `${name}.layout-${safe}`;
-
-  for (let n = 2; taken.has(stem.toLowerCase()); n++) stem = `${name}.layout-${safe}-${n}`;
-  taken.add(stem.toLowerCase());
-
-  return stem;
-}
-
-function outputError(what: string, cause: unknown): BuildError {
-  // SAFETY: the writes, the renderer and the plot fail with Errors, those of the file system
-  // with a code.
-  const e = cause as NodeJS.ErrnoException;
-
-  return {
-    name: "Output",
-    message: `${what}: ${e.message}`,
-    code: isString(e.code) ? e.code : null,
-    file: null,
-    line: null,
-    column: null,
-    stack: e.stack ?? "",
-  };
+  process.stdout.write(`${JSON.stringify(state, null, 2)}\n`);
+  process.exitCode = code;
 }
 
 function realpath(path: string): string {
