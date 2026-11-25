@@ -27,6 +27,10 @@ const HELP = `Usage:
                 [--near <x,y> [--within <d>]] [--xref <name>=<file>]... [--reader <package>]
   tsdraft write <edit file>... [--out <dir>] [--root <dir>] [--reader <package>]
   tsdraft mcp
+  tsdraft feedback --kind <kind> --subject <subject> [--expected <text>]
+                   [--actual <text>] [--workaround <text>]
+  tsdraft feedback mode [on | off]
+  tsdraft feedback list [--json]
 
 A drawing file is a TypeScript module whose default export is a Drawing, or a
 function that returns one. It may also be a DXF, or a DWG that a reader the
@@ -77,6 +81,21 @@ mcp     Serves the command as an MCP server on stdin and stdout, for an agent
         Its tool render builds a file as render does and answers with a short
         brief of the build and the pictures as images; execute runs a JavaScript
         program over builds and reads, and answers with only what it returns.
+
+feedback  Files a report of where tsdraft got in an agent's way, for its
+        maintainer. Off unless the user turns it on with mode on, or
+        TSDRAFT_FEEDBACK=on, which wins over the saved mode. With it on, only a
+        report's id, kind, subject and tsdraft version leave the machine; its
+        texts never do. --kind is bug, confusing, missing_capability,
+        wrong_docs or other. --subject is a command, an MCP tool (render,
+        execute), a part of the library (lint, toSVG, toDXF, standard, edit,
+        read, measureText) or general. --expected, --actual and --workaround,
+        at most 300 characters each, stay in the copy saved in
+        TSDRAFT_FEEDBACK_DIR or tsdraft's state folder. DO_NOT_TRACK,
+        TSDRAFT_TELEMETRY=0 and CI stop the send and keep the copy. A report is
+        sent once, when it is filed, and what became of the send is recorded in
+        its copy. list prints the saved reports.
+        What is sent, and what never is: https://github.com/Surfside-Software/tsdraft/blob/main/docs/command.md#agent-feedback
 
 write   Makes the edited copy of the file each edit file names, and prints the
         job as JSON. An edit file is a TypeScript module whose default export is
@@ -159,6 +178,12 @@ try {
       xref: { type: "string", multiple: true },
       root: { type: "string" },
       reader: { type: "string" },
+      kind: { type: "string" },
+      subject: { type: "string" },
+      expected: { type: "string" },
+      actual: { type: "string" },
+      workaround: { type: "string" },
+      json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -176,8 +201,90 @@ if (values.help) {
   process.exit(0);
 }
 
-if (!command || !["render", "dev", "shows", "write", "mcp"].includes(command)) {
-  usage("Give a command: render, dev, shows, write or mcp.");
+if (!command || !["render", "dev", "shows", "write", "mcp", "feedback"].includes(command)) {
+  usage("Give a command: render, dev, shows, write, mcp or feedback.");
+}
+
+const FEEDBACK_FLAGS = ["kind", "subject", "expected", "actual", "workaround", "json"] as const;
+
+if (command === "feedback") {
+  const other = Object.keys(values).find((flag) => !FEEDBACK_FLAGS.some((f) => f === flag));
+
+  if (other !== undefined) usage(`--${other} does not go with feedback.`);
+
+  const [action, value, ...more] = positionals.slice(1);
+
+  const reportFlag = ["kind", "subject", "expected", "actual", "workaround"].find((flag) =>
+    Object.hasOwn(values, flag),
+  );
+
+  if (action !== undefined && reportFlag !== undefined) {
+    usage(`--${reportFlag} goes with a report: tsdraft feedback --kind … --subject ….`);
+  }
+
+  if (values.json !== undefined && action !== "list") usage("--json goes with list.");
+
+  // The mode alone is read here: with feedback off, nothing more of it is loaded.
+  const { configFile, feedbackMode, MODES, OFF_MESSAGE, setFeedbackMode } =
+    await import("./feedback-mode.ts");
+
+  if (action === "mode") {
+    if (more.length > 0) usage("Give one mode: on or off.");
+    const mode = value === undefined ? undefined : MODES.find((m) => m === value);
+
+    if (value !== undefined && mode === undefined) {
+      usage(`A mode is on or off, not ${JSON.stringify(value)}.`);
+    }
+
+    const file = mode === undefined ? configFile() : setFeedbackMode(mode);
+    const now = feedbackMode();
+    const overridden = mode !== undefined && now.mode !== mode;
+
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          ...now,
+          file,
+          ...(overridden && {
+            note: `TSDRAFT_FEEDBACK is set, and it wins: the mode in effect is ${now.mode}.`,
+          }),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    process.exit(0);
+  }
+
+  if (action !== undefined && action !== "list") {
+    usage(`feedback has no ${JSON.stringify(action)}: give a report, mode or list.`);
+  }
+
+  const setting = feedbackMode();
+
+  // A report needs feedback on; the saved copies may be listed at any time.
+  if (action === undefined && setting.mode === "off") {
+    process.stderr.write(`${setting.problem ?? OFF_MESSAGE}\n`);
+    process.exit(1);
+  }
+
+  const { feedbackCommand, FeedbackUsage } = await import("./feedback.ts");
+
+  let code;
+
+  try {
+    code = await feedbackCommand(positionals.slice(1), values);
+  } catch (error) {
+    if (error instanceof FeedbackUsage) usage(error.message);
+    throw error;
+  }
+
+  process.exit(code);
+}
+
+for (const flag of FEEDBACK_FLAGS) {
+  if (values[flag] !== undefined) usage(`--${flag} goes with feedback.`);
 }
 
 if (command === "mcp") {

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Agent feedback, off unless the user turns it on with `tsdraft feedback mode on`: `tsdraft feedback`
+  and a `feedback` tool of `tsdraft mcp` let an agent report where tsdraft got in its way, as a kind
+  and a subject from lists, with three short texts in its own words. Only the report's id, kind,
+  subject and tsdraft version are sent. The texts never leave the machine: they stay in the copy
+  of each report saved there, which `tsdraft feedback list` shows. A report is sent once, as it is
+  filed, with no retry, and the copy records whether it was sent, not sent and why, or failed.
+  `DO_NOT_TRACK`, `TSDRAFT_TELEMETRY=0` and CI stop all sending.
 - `tsdraft mcp` serves the command as an MCP server, for an agent whose harness speaks MCP. Its
   `render` tool builds a drawing file as `tsdraft render` does and answers with a brief of the
   build, the counts, the first diagnostics at the calls that made them and the pictures as

@@ -25,6 +25,7 @@ const PINNED = new Map([
   [
     "no-unknown-parameters",
     new Map([
+      ["cli/src/feedback.ts", 2],
       ["cli/src/mcp.ts", 7],
       ["cli/src/program.ts", 12],
       ["cli/src/worker.ts", 6],

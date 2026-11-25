@@ -204,6 +204,87 @@ return s.drawing.layouts.map((l) => ({ name: l.name, scales: l.viewports.map((v)
 Builds run one at a time. The server keeps a process waiting with the library loaded between
 calls, as `tsdraft dev` does, and ends with its input.
 
+While [agent feedback](#agent-feedback) is on, the server lists a third tool, `feedback`, and its
+instructions say when to call it.
+
+## Agent feedback
+
+Agents are tsdraft's main users, so tsdraft lets an agent tell its maintainer where tsdraft got
+in its way: a rule, message or diagnostic that was wrong or unclear, a doc that misled it, a
+missing capability, a bug, or a workaround it had to invent. It is **off** unless the user turns
+it on. When it is on, a report sends four fields, none of them the agent's text, and nothing about
+the user's firm, project or drawings ever leaves the machine.
+
+### What leaves the machine
+
+| Field     | What it is                                                                                                                                                                                     |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`      | A new random UUID for each report, so reports cannot be tied to a machine or to each other                                                                                                     |
+| `kind`    | `bug`, `confusing`, `missing_capability`, `wrong_docs` or `other`                                                                                                                              |
+| `subject` | A command (`render`, `dev`, `shows`, `write`, `mcp`, `feedback`), a tool (`execute`), a part of the library (`lint`, `toSVG`, `toDXF`, `standard`, `edit`, `read`, `measureText`) or `general` |
+| `tsdraft` | tsdraft's version as `major.minor.patch`, such as `0.6.0`, with any suffix such as `-beta.1` stripped; `unknown` unless it starts with three numbers of at most three digits each              |
+
+That is the whole payload, in every mode, and every payload has all four fields. One function makes
+it and checks it before it is posted: a field not on the list, a kind or subject not on its list,
+or an id tsdraft did not make is not sent. The id is made when the report is filed; nothing read
+from a saved copy is ever posted. It holds no text of the agent's, no install ID or other stable ID, and no runtime, operating
+system, client, machine or user name. A send carries no cookie, no authorization and no header
+that names the machine. The server that receives it sees the connection's IP address, as any
+server does.
+
+### What stays on the machine
+
+A report may also hold `expected`, `actual` and `workaround`, up to 300 characters each, in the
+agent's own words. They are never sent. They are kept, as written, in the report's copy on the
+machine, for the user to read, or for a maintainer to collect from their own machines. Any other
+field the agent gives is dropped.
+
+Every report is saved before anything is sent: `<id>.json` in `TSDRAFT_FEEDBACK_DIR`, else
+`$XDG_STATE_HOME/tsdraft/feedback`, else `~/Library/Application Support/tsdraft/feedback` on
+macOS, `%LOCALAPPDATA%\tsdraft\feedback` on Windows and `~/.local/state/tsdraft/feedback`
+elsewhere. The copy also notes when the report was made, whether it came from the command or the
+server, and what became of its send: `status` is `sent`, `not sent` with the `reason`, or `failed`
+with the error as the `reason`. `tsdraft feedback list` lists the copies, and `list --json` prints
+each one whole.
+
+### Modes
+
+| Mode  | What happens                                                                                                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `off` | The default. The `feedback` tool is not listed, the server's instructions do not mention it, nothing of it is loaded, and `tsdraft feedback` says how to turn it on and exits 1 |
+| `on`  | `tsdraft feedback` and the `feedback` tool save each report and send its four fields                                                                                            |
+
+Set the mode with `tsdraft feedback mode on` or `off`, which writes `feedback.json` in tsdraft's
+config folder: `$XDG_CONFIG_HOME/tsdraft`, else `~/Library/Application Support/tsdraft` on macOS,
+`%APPDATA%\tsdraft` on Windows and `~/.config/tsdraft` elsewhere. `TSDRAFT_FEEDBACK=on` or `off`
+wins over the file; any other value counts as off. The server reads the mode when it starts, and
+every report reads it again, with the opt-outs, just before it posts: feedback turned off while the
+server runs stops the send, and the report is kept with `not sent`.
+
+`DO_NOT_TRACK` set to anything but empty, `0` or `false`, `TSDRAFT_TELEMETRY=0`, and a CI
+environment, such as `CI` set to anything but empty, `false` or `0`, stop all sending: reports are
+still saved on the machine. A run of the command or a session of the server files at most 3
+reports. The machine files about 10 an hour: the times are kept in a small file in tsdraft's state
+folder in the user's home, which no variable moves, read and replaced with no lock, so many runs
+at the same moment may let a few more through.
+
+### Sending
+
+A report is saved, then sent at once as one JSON POST, once: there is no retry. tsdraft's own
+endpoint does not exist yet, so for now a report is kept and its receipt says `not sent` and why.
+For tests, `TSDRAFT_FEEDBACK_URL` may point the send at this machine alone: exactly
+`http://127.0.0.1` or `http://[::1]`, with a port and a path if wanted, and no user, password,
+query or fragment. `localhost`, `https` and every other URL are refused and nothing is sent. The
+send goes straight to that address, through no proxy, even one the environment names. It has 10
+seconds, follows no redirect, and carries no header that names the machine. A send that fails is
+recorded in the copy as `failed`, with the error.
+
+```sh
+tsdraft feedback mode on
+tsdraft feedback --kind confusing --subject lint --expected "..." --actual "..."
+tsdraft feedback list
+```
+
 ## A closer look
 
 A whole sheet in one picture leaves its text too small to read: on an ARCH D sheet 1600 px

@@ -11,6 +11,7 @@
     },
     {
       "files": [
+        "cli/src/feedback.ts",
         "cli/src/mcp.ts",
         "cli/src/program.ts",
         "cli/src/worker.ts",

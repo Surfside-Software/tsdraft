@@ -157,6 +157,17 @@ JavaScript program over a build or a read file and answers with only what it ret
 `return (await render("plan.ts")).drawing.inserts.filter((i) => i.block === "DOOR").length`.
 [The MCP server](docs/command.md#the-mcp-server) has both.
 
+### Feedback
+
+When the user has turned on [agent feedback](docs/command.md#agent-feedback), the server lists a
+`feedback` tool, and `tsdraft feedback --kind … --subject …` does the same from the shell. Use it
+when tsdraft gets in your way: a rule, message or diagnostic that was wrong or unclear, a doc that
+misled you, a missing capability, a bug or a workaround you had to invent. Only the report's id,
+kind, subject and the tsdraft version are sent. `--expected`, `--actual` and `--workaround` stay
+in the copy saved on the machine and are never sent; write them in your own words all the same.
+The report is sent once as it is filed, and the receipt's `status` says `sent`, `not sent` or
+`failed`; nothing is tried again. Tell the user in one sentence, with the id.
+
 ## What the JSON holds
 
 `render` printed this for the file above, shortened here to what you read first:

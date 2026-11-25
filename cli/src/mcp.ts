@@ -10,6 +10,8 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { BRIEF_DIAGNOSTICS, brief, type Brief } from "./brief.ts";
 import { Builder } from "./build.ts";
+import type { Feedback } from "./feedback.ts";
+import { feedbackMode } from "./feedback-mode.ts";
 import { isBoolean, isNumber, isObject, isString, type Json, type JsonObject } from "./guards.ts";
 import {
   type CallValue,
@@ -95,6 +97,10 @@ export async function serve(): Promise<void> {
     write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
   };
 
+  // Read once, when the server starts. With feedback off nothing more of it is loaded or read.
+  const loaded = feedbackMode().mode === "off" ? undefined : await import("./feedback.ts");
+  const feedback = loaded && { module: loaded, session: new loaded.Feedback({ via: "mcp" }) };
+
   const builds = new Builds();
   const programs = new Programs(builds, cwd);
   /** What stops a request in flight, by its id, for `notifications/cancelled`. */
@@ -124,7 +130,9 @@ export async function serve(): Promise<void> {
             isString(asked) && PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0]!,
           capabilities: { tools: {} },
           serverInfo: { name: "tsdraft", version: packageVersion() },
-          instructions: instructions(cwd),
+          instructions: feedback
+            ? `${instructions(cwd)}\n\n${feedback.module.FEEDBACK_INSTRUCTIONS}`
+            : instructions(cwd),
         });
       }
 
@@ -132,11 +140,17 @@ export async function serve(): Promise<void> {
         return reply({});
 
       case "tools/list":
-        return reply({ tools: tools(cwd) });
+        return reply({
+          tools: feedback ? [...tools(cwd), feedback.module.feedbackTool()] : tools(cwd),
+        });
 
       case "tools/call": {
         const name = params.get("name");
         const args = fieldsOf(params.get("arguments"));
+
+        if (name === "feedback" && feedback) {
+          return reply(await feedbackCall(feedback.session, args, feedback.module));
+        }
 
         if (name !== "render" && name !== "execute") {
           return fail(-32602, `Unknown tool: ${JSON.stringify(name ?? null)}`);
@@ -828,6 +842,23 @@ function readPng(path: string): Content | null {
     return { type: "image", data: readFileSync(path).toString("base64"), mimeType: "image/png" };
   } catch {
     return null;
+  }
+}
+
+/** The `feedback` tool: the receipt, or why the report was refused, as the tool's error. */
+async function feedbackCall(
+  session: Feedback,
+  args: Fields,
+  { decodeReport, FeedbackRefusal }: typeof import("./feedback.ts"),
+): Promise<ToolResult> {
+  try {
+    const receipt = await session.file(decodeReport(Object.fromEntries(args)));
+
+    return { content: [{ type: "text", text: JSON.stringify(receipt) }] };
+  } catch (error) {
+    if (!(error instanceof FeedbackRefusal)) throw error;
+
+    return { content: [{ type: "text", text: error.message }], isError: true };
   }
 }
 
