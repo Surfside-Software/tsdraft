@@ -39,8 +39,10 @@ import type {
 } from "./drawing.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { hasArcsOrWidths, mayCurve, polylineBox, PolylineMemo } from "./polylines.ts";
-import { leaderPicture, leaderRepeats } from "./leaders.ts";
-import { tableCost, tableBox, tableMeasures, tablePicture } from "./tables.ts";
+import { leaderPicture } from "./leaders.ts";
+import { leaderRepeats } from "./leader-walks.ts";
+import { tableBox, tableMeasures, tablePicture } from "./tables.ts";
+import { tableCost } from "./table-walks.ts";
 import { inStyle, measurer } from "./measure.ts";
 import {
   layoutDimensionText,

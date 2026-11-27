@@ -68,11 +68,10 @@ import {
   leaderArrowheadHandles,
   leaderBlock,
   leaderDrawnProblem,
-  leaderRepeats,
   leaderStyleDictionaryHandle,
   validLeaderStyleHandle,
-  leaderPlacesBlock,
 } from "./leaders.ts";
+import { leaderPlacesBlock, leaderRepeats } from "./leader-walks.ts";
 import { paperInfo } from "./papers.ts";
 import { isUnits } from "./units.ts";
 import type { Standard } from "./standard/document.ts";
@@ -94,15 +93,14 @@ import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
 import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import {
   STANDARD_TABLE_STYLE,
-  tableCost,
   tableMargins,
   tableMeasures,
   tablePicture,
-  tableRepeats,
   tableTexts,
   tableStyleDictionaryHandle,
   validTableStyleHandle,
 } from "./tables.ts";
+import { tableCost, tableRepeats } from "./table-walks.ts";
 import { parseParagraph, type ParsedParagraph } from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {

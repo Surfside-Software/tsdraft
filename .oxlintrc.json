@@ -20,7 +20,8 @@
         "src/edit/change-shape.ts",
         "src/edit/model.ts",
         "src/json.ts",
-        "src/leaders.ts",
+        "src/leader-outline.ts",
+        "src/leader-walks.ts",
         "src/lint.ts",
         "src/points.ts",
         "src/read/check.ts",
@@ -31,7 +32,7 @@
         "src/standard/made.ts",
         "src/standard/lint.ts",
         "src/standard/shape.ts",
-        "src/tables.ts",
+        "src/table-walks.ts",
         "src/transparency.ts"
       ],
       "rules": {

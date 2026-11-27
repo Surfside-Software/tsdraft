@@ -13,15 +13,11 @@ import {
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
 import { dimensionPicture, pictureTexts, isDimension } from "./dimensions.ts";
-import { leaderPicture, leaderRepeats } from "./leaders.ts";
+import { leaderPicture } from "./leaders.ts";
+import { leaderRepeats } from "./leader-walks.ts";
 import { boxer, type Boxer } from "./extents.ts";
-import {
-  tableCost,
-  tableMeasures,
-  tableParagraph,
-  tablePicture,
-  type TablePicture,
-} from "./tables.ts";
+import { tableMeasures, tableParagraph, tablePicture, type TablePicture } from "./tables.ts";
+import { tableCost } from "./table-walks.ts";
 import type {
   Block,
   Drawing,

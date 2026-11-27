@@ -15,7 +15,7 @@ import {
 import { referencedByKey } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
 import { TABLE_COLOR } from "../src/rules.ts";
-import { tableCost, tableRepeats } from "../src/tables.ts";
+import { tableCost, tableRepeats } from "../src/table-walks.ts";
 import { within } from "./time-limit.ts";
 import { pairs } from "./dxf-groups.ts";
 import { dataOf, wrong } from "./values.ts";

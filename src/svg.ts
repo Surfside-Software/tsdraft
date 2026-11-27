@@ -132,9 +132,10 @@ import { fontInfo, STANDARD_FONT, capHeightOf } from "./fonts.ts";
 import { fifteenDigits, fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
-import { leaderBlock, leaderBlockKeys, leaderPicture, type LeaderPicture } from "./leaders.ts";
+import { leaderBlock, leaderPicture, type LeaderPicture } from "./leaders.ts";
+import { leaderBlockKeys } from "./leader-walks.ts";
+import { tableCost } from "./table-walks.ts";
 import {
-  tableCost,
   tableInserts,
   tableMatrix,
   tableMeasures,

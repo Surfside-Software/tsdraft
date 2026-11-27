@@ -326,7 +326,6 @@ export {
   leaderCount,
   leaderOwnFlags,
   leaderPicture,
-  leaderPlacesBlock,
   leaderSide,
   leaderSizes,
   leaderStyleDictionaryHandle,
@@ -340,6 +339,8 @@ export {
   type LeaderPicture,
   type LeaderSizes,
 } from "./leaders.ts";
+
+export { leaderPlacesBlock } from "./leader-walks.ts";
 
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
 

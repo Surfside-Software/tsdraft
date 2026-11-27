@@ -29,7 +29,7 @@ import {
 import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
 import { blocksByKey, eachDrawn, mapPoint } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
-import { leaderBlockKeys } from "../src/leaders.ts";
+import { leaderBlockKeys } from "../src/leader-walks.ts";
 import { isString } from "../src/guards.ts";
 import { layerAuditKey } from "../src/layers.ts";
 import { within } from "./time-limit.ts";

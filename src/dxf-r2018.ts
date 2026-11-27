@@ -195,8 +195,8 @@ import {
   STANDARD_LEADER_STYLE_SIZES,
   validLeaderStyleHandle,
   heldByBlock,
-  leaderPlacesBlock,
 } from "./leaders.ts";
+import { leaderPlacesBlock } from "./leader-walks.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
 import { idKey, isStandardTextStyle, shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
 import { pointMode, pointSize } from "./points.ts";

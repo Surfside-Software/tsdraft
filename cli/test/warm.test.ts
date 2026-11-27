@@ -23,12 +23,17 @@ import { librarySteps } from "../src/warmup.ts";
 const root = join(fileURLToPath(new URL("..", import.meta.url)), ".");
 const built = join(root, "../dist");
 
+// A busy machine can make a warm-up miss the command's deadline, and the build after it then runs
+// cold. The tests that hold a build warm give it a deadline far off; those of the deadline set
+// their own.
+const WAITING = { timeout: 30_000, warm: true, warmDeadline: 30_000 } as const;
+
 /** Builds a file `times` times, each once the waiting processes have warmed up. */
 async function builds(
   file: string,
   times: number,
   between?: (n: number) => void,
-  builder = new Builder({ timeout: 30_000, warm: true }),
+  builder = new Builder(WAITING),
 ) {
   const outcomes: Outcome[] = [];
 
@@ -61,7 +66,7 @@ function settled(builder: Builder): Promise<void> {
 
 /** A file's answer from a process that waited and warmed up, and from one just started. */
 async function warmAndCold(file: string): Promise<[warm: Outcome, cold: Outcome]> {
-  const waiting = new Builder({ timeout: 30_000, warm: true });
+  const waiting = new Builder(WAITING);
   const fresh = new Builder({ timeout: 30_000, warm: false });
 
   try {
@@ -215,7 +220,7 @@ test("the command's own library, changed since a waiting process loaded it, is r
 
         if (n === 6) own.mark("dddd");
       },
-      new own.Builder({ timeout: 30_000, warm: true }),
+      new own.Builder(WAITING),
     );
 
     const drawn = outcomes.map((o) => /data-copy="(\w+)"/.exec(o.svg!)?.[1]);
@@ -249,7 +254,7 @@ test("a link in the command's own library that is pointed elsewhere is followed 
       own.file,
       4,
       (n) => n === 2 && point("two.js"),
-      new own.Builder({ timeout: 30_000, warm: true }),
+      new own.Builder(WAITING),
     );
 
     const drawn = outcomes.map((o) => /data-copy="(\w+)"/.exec(o.svg!)?.[1]);
@@ -432,7 +437,7 @@ test("a library whose folder was gone when a warm-up tried it is loaded ahead on
 
         if (n === 3) renameSync(away, dist);
       },
-      new own.Builder({ timeout: 30_000, warm: true }),
+      new own.Builder(WAITING),
     );
 
     assert.deepEqual(
