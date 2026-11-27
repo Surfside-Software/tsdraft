@@ -860,7 +860,7 @@ export function checkDrawingRead(value: unknown): string[] {
 
     if (type === "entity") {
       const kind = isPlainRecord(v) ? v.kind : undefined;
-      const fields = isString(kind) ? ENTITY[kind] : undefined;
+      const fields = isString(kind) && Object.hasOwn(ENTITY, kind) ? ENTITY[kind] : undefined;
 
       if (!fields) say(at, `has kind ${shown(kind)}, which is not an entity's kind`);
       else checkFields(v, fields, at);

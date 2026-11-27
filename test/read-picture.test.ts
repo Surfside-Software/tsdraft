@@ -3,10 +3,11 @@ import { test } from "node:test";
 import sheet, { images } from "../examples/site-plan.ts";
 import { isString } from "../src/guards.ts";
 import { timeLimit, within } from "./time-limit.ts";
-import { dataOf, wrong } from "./values.ts";
+import { dataOf, wrong, type Field } from "./values.ts";
 import {
   createDrawing,
   joinPicture,
+  pictureDrawing,
   readDXF,
   readPicture,
   svgToPDF,
@@ -173,6 +174,77 @@ test("an xref whose drawing is not given is counted, as it draws nothing", () =>
     ],
     undefined,
   );
+});
+
+test("an xref is given by its name in any case, under any name, and only as a read", () => {
+  const notGiven = (r: DrawingRead, xrefs: Field) => ({
+    ...pictureDrawing(r, { xrefs: wrong(xrefs) }).notes.notDrawn,
+  });
+
+  const host: DrawingRead = {
+    ...read,
+    xrefs: [{ name: "Base", path: "base.dwg", overlay: false }],
+  };
+
+  assert.deepEqual(notGiven(host, { BASE: dataOf(read) }), {});
+
+  const proto: DrawingRead = {
+    ...read,
+    xrefs: [{ name: "__proto__", path: "p.dwg", overlay: false }],
+  };
+
+  const given = JSON.parse(`{"__proto__": ${JSON.stringify(read)}}`);
+  const made = pictureDrawing(proto, { xrefs: given });
+
+  assert.ok(Object.hasOwn(made.xrefs, "__proto__"));
+  assert.equal(Object.getPrototypeOf(made.xrefs), null);
+
+  assert.deepEqual(notGiven(host, { Base: { ...dataOf(read), unread: undefined } }), {
+    "an xref whose read is not a DrawingRead": 1,
+  });
+});
+
+test("a viewport takes its id from its handle only where the handle is hexadecimal", () => {
+  const layout = read.layouts[0]!;
+  const viewport = layout.viewports[0]!;
+
+  const odd: DrawingRead = {
+    ...read,
+    layouts: [{ ...layout, viewports: [{ ...viewport, handle: '1"x' }] }, ...read.layouts.slice(1)],
+  };
+
+  const options = { images, layout: layout.name };
+
+  assert.match(readPicture(read, options).svg, new RegExp(`data-id="vp${viewport.handle}"`));
+  assert.doesNotMatch(readPicture(odd, options).svg, /data-id="vp1/);
+});
+
+test("a solid's spline edge of a degree past the most a spline has is counted, as it draws nothing", () => {
+  const knots = [...Array<number>(13).fill(0), ...Array<number>(13).fill(1)];
+
+  const controlPoints = Array.from({ length: 13 }, (_, i): [number, number, number] => [
+    i,
+    i % 2,
+    0,
+  ]);
+
+  const solid: DrawingRead = {
+    ...read,
+    model: {
+      ...read.model,
+      entities: [
+        {
+          kind: "3dsolid",
+          handle: "F01",
+          layer: "0",
+          edges: [{ kind: "spline", degree: 12, knots, controlPoints }],
+        },
+      ],
+      drawOrder: [],
+    },
+  };
+
+  assert.equal(readPicture(solid).notes.notDrawn["a spline edge of a degree over 11"], 1);
 });
 
 test("an old leader's arrowhead is closed and filled, whatever its style's DIMBLK", () => {

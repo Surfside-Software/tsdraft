@@ -115,7 +115,9 @@
   the deadline or when its parent is gone. A library that cannot be kept is not loaded ahead
   again until its folder changes: a file or a folder in it, or the folder itself, so that one
   taken away and put back counts. One that missed the deadline once is tried once more after
-  the next build, and after a second miss waits for a change too. What a warm-up writes is
+  the next build, and after a second miss waits for a change too. A closed `Builder` starts no
+  process again, whatever answer or deadline of a spare comes after the close: two spares nobody
+  closes would keep the command, or a test file, from ever ending. What a warm-up writes is
   dropped, since a build's `log` is what the drawing file wrote. A module loaded ahead that
   the build reaches is reported to the parent with the version it was read at, as if the
   build had read it, so it is watched as before.

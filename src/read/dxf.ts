@@ -26,7 +26,7 @@ import {
   type Later,
   type PendingStart,
 } from "./entities.ts";
-import { GroupReader, textTwice, unescaped } from "./groups.ts";
+import { GroupReader, ReadError, textTwice, unescaped } from "./groups.ts";
 import { MARK_APP, recordAdditions } from "./mark.ts";
 import { TableGroups, tableStyleOf, type TableStyleHeld } from "./table.ts";
 import { OUTSIDE_THE_READ, ownBlocks, partFilter, type PartFilter } from "./part.ts";
@@ -1027,6 +1027,14 @@ class DxfReader {
     }
   }
 
+  /** Refuses the file when a list already holds as many as a read keeps of one: `census`. */
+  #listRoom(held: number, what: string): void {
+    if (held >= this.#limits.census)
+      throw new ReadError(
+        `The file holds more than ${this.#limits.census} ${what}, more than a read keeps`,
+      );
+  }
+
   #tableRecord(r: Rec): void {
     const handle = handleAt(r, 5) ?? handleAt(r, 105);
     const recordName = name(r, 2) ?? "";
@@ -1037,6 +1045,7 @@ class DxfReader {
         const color = num(r, 62);
         const trueColor = num(r, 420);
         const plot = num(r, 290);
+        this.#listRoom(this.layers.length, "layers");
         this.layers.push({
           handle,
           name: recordName,
@@ -1094,6 +1103,7 @@ class DxfReader {
           complex,
         };
 
+        this.#listRoom(this.linetypes.length, "linetypes");
         this.linetypes.push(linetype);
 
         if (marks.length > 0) this.#marked.push([this.linetypes.length - 1, marks]);
@@ -1102,6 +1112,8 @@ class DxfReader {
       }
 
       case "STYLE": {
+        this.#listRoom(Math.max(this.#stylesByHandle.size, this.textStyles.length), "text styles");
+
         if (handle !== undefined)
           this.#stylesByHandle.set(normalHandle(handle), {
             name: recordName,
@@ -1180,12 +1192,15 @@ class DxfReader {
           if (n === 2 && Number.isFinite(index)) style.textFillColor = index;
         }
 
+        this.#listRoom(this.dimensionStyles.length, "dimension styles");
         this.dimensionStyles.push(style);
 
         return;
       }
 
       case "BLOCK_RECORD":
+        this.#listRoom(this.blockRecords.size, "block records");
+
         if (handle !== undefined) this.blockRecords.set(handle, recordName);
 
         return;
@@ -1218,6 +1233,7 @@ class DxfReader {
         this.#spaceName = upper;
         this.#space = this.#spaceFor(upper);
       } else if ((flags & 4) !== 0) {
+        this.#listRoom(this.xrefs.length, "xrefs");
         this.xrefs.push({
           handle: ownerOf(r),
           name: blockName,
@@ -1243,6 +1259,7 @@ class DxfReader {
           ...(handle !== undefined &&
             this.#ownBlocks.has(handle.replace(/^0+(?=.)/, "").toUpperCase()) && { ownRoom: true }),
         };
+        this.#listRoom(this.blocks.length, "blocks");
         this.blocks.push(this.#block);
       }
 
@@ -1294,6 +1311,7 @@ class DxfReader {
     let space = this.spaces.get(spaceName);
 
     if (!space) {
+      this.#listRoom(this.spaces.size, "spaces");
       space = {
         census: new Census(this.#limits.census),
         viewports: [],
@@ -1963,7 +1981,7 @@ class DxfReader {
           ) {
             entries ??= {};
             entries[key] = value;
-          } else if (handle === this.#editDictionary) {
+          } else if (handle.toUpperCase() === this.#editDictionary) {
             if (this.#editEntries.length < this.#limits.census)
               this.#editEntries.push([unescaped(key), value.toUpperCase()]);
           } else if (key === MARK_APP && handle === this.#rootDictionary)
@@ -1989,7 +2007,12 @@ class DxfReader {
             this.#imageEntries.length < this.#limits.census
           ) {
             this.#imageEntries.push([unescaped(key), value]);
-          } else if (styles && key.length <= LONGEST_NAME && !this.leaderStyles.has(value)) {
+          } else if (
+            styles &&
+            key.length <= LONGEST_NAME &&
+            !this.leaderStyles.has(value) &&
+            this.leaderStyles.size < this.#limits.census
+          ) {
             this.leaderStyles.set(value, unescaped(key));
           }
         }
@@ -2174,6 +2197,7 @@ class DxfReader {
             ? paperUnits / drawingUnits
             : undefined;
 
+        this.#listRoom(this.layouts.length, "layouts");
         this.layouts.push({
           handle: handleAt(r, 5),
           name: name(layout, 1) ?? "",
@@ -2335,13 +2359,26 @@ class DxfReader {
       return sorted === undefined ? {} : { drawOrder: sorted };
     };
 
+    // The first layout of each space, by the space's block in capitals.
+    const firstOfSpace = new Map<string, LayoutDraft>();
+
+    for (const draft of this.layouts) {
+      const spaceName = spaceOf(draft);
+
+      if (!firstOfSpace.has(spaceName)) firstOfSpace.set(spaceName, draft);
+    }
+
     const layouts: ReadLayout[] = [];
 
     for (const draft of this.layouts.toSorted((a, b) => a.tab - b.tab)) {
       const recordName = spaceOf(draft);
 
       if (recordName === MODEL || draft.name.toUpperCase() === "MODEL") continue;
-      const space = this.spaces.get(recordName);
+      // Only the first layout in the file that names a space shows it.
+      const shared = firstOfSpace.get(recordName) !== draft && this.spaces.has(recordName);
+
+      if (shared) add(this.unread.malformed, "LAYOUT of a paper space another layout has");
+      const space = shared ? undefined : this.spaces.get(recordName);
       const { handle, name: layoutName, tab, blockRecord: _, space: _space, ...rest } = draft;
 
       if (!this.layoutSpaces.has(layoutName)) this.layoutSpaces.set(layoutName, recordName);
@@ -2372,23 +2409,16 @@ class DxfReader {
       });
     }
 
-    // The first layout of each space, by the space's block in capitals.
-    const layoutBySpace = new Map<string, string>();
-
-    for (const draft of this.layouts) {
-      const spaceName = spaceOf(draft);
-
-      if (!layoutBySpace.has(spaceName)) layoutBySpace.set(spaceName, draft.name);
-    }
-
     for (const spaceName of this.spaces.keys()) {
-      if (spaceName !== MODEL && !layoutBySpace.has(spaceName)) {
+      if (spaceName !== MODEL && !firstOfSpace.has(spaceName)) {
         add(this.unread.malformed, "paper space with no layout");
       }
     }
 
     const layoutOf = (spaceName: string | undefined): string | undefined =>
-      spaceName === undefined || spaceName === MODEL ? undefined : layoutBySpace.get(spaceName);
+      spaceName === undefined || spaceName === MODEL
+        ? undefined
+        : firstOfSpace.get(spaceName)?.name;
 
     const model = this.spaces.get(MODEL);
     const opensAt = this.#opensAt(this.layouts, spaceOf);

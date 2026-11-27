@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -376,6 +377,46 @@ test("a file of the command's own library that leads outside its folder is never
     );
     // Once for each build, which read it cold, and never for a warm-up.
     assert.equal(readFileSync(loads, "utf8"), "loaded\nloaded\n");
+  }));
+
+test("a builder closed while a spare's answer is on its way starts no spare again", () =>
+  inScratch(async (dir) => {
+    // The warm-up answers that it cannot keep this library, which ends the spare and asks for
+    // another. Its toSVG marks when the warm-up has drawn, so the answer is sent soon after.
+    const drawn = join(dir, "drawn");
+
+    const own = await ownCommand(
+      dir,
+      `process.getBuiltinModule("node:fs").writeFileSync(${JSON.stringify(drawn)}, ""); return draw(...given);`,
+    );
+
+    writeFileSync(join(dir, "outside.js"), 'export const MARK = "aaaa";\n');
+    rmSync(join(dir, "dist/mark.js"));
+    symlinkSync(join(dir, "outside.js"), join(dir, "dist/mark.js"));
+    rmSync(drawn, { force: true });
+
+    const builder = new own.Builder({ timeout: 30_000, warm: true });
+    await builder.build(own.file, root);
+    // Held here, the loop reads the answer only after the close.
+    const until = Date.now() + 30_000;
+
+    while (!existsSync(drawn) && Date.now() < until);
+    const sent = Date.now() + 500;
+
+    while (Date.now() < sent);
+    builder.close();
+
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+    const children = spawnSync("ps", ["-o", "pid=,args=", "--ppid", String(process.pid)], {
+      encoding: "utf8",
+    })
+      .stdout.split("\n")
+      .filter((line) => line.includes("worker"))
+      .map((line) => Number(line.trim().split(" ")[0]));
+
+    for (const pid of children) process.kill(pid, "SIGKILL");
+    assert.deepEqual(children, []);
   }));
 
 test("a library whose folder was gone when a warm-up tried it is loaded ahead once it is back", () =>

@@ -81,6 +81,11 @@ export class Builder {
   readonly #changesLater: boolean;
   #running: Child | undefined;
   /**
+   * Set by `close`. A spare's answer or deadline can still come after it, and must start no
+   * spare, or the processes would keep the command from ending.
+   */
+  #closed = false;
+  /**
    * The process that keeps the reads and the pictures of an edit's source, for the life of the
    * builder. It is given each edit as data and never loads a drawing file.
    */
@@ -291,7 +296,7 @@ export class Builder {
   }
 
   #refill(): void {
-    while (this.#warm && this.#spares.length < SPARES) {
+    while (this.#warm && !this.#closed && this.#spares.length < SPARES) {
       const child = spawn();
       child.process.once("exit", () => {
         const at = this.#spares.indexOf(child);
@@ -414,6 +419,7 @@ export class Builder {
   }
 
   close(): void {
+    this.#closed = true;
     this.cancel();
     this.#previewer?.process.kill("SIGKILL");
     this.#previewer = undefined;

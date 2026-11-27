@@ -99,6 +99,23 @@ test("an addition is the builder's entity in the file's names, marked, with a ha
   );
 });
 
+test("an edit's record is found where the file writes its handles in lower case", async () => {
+  const { out } = await edited(firmFile(), "rev-1", (e) =>
+    e.model((d) => d.layer("A-NOTE", () => d.line([0, 0], [5, 5]))),
+  );
+
+  const text = new TextDecoder().decode(out!);
+  const own = /\r\n *3\r\nTSDRAFT\r\n *350\r\n([0-9A-F]+)\r\n/.exec(text)![1]!;
+
+  const lower = text.replace(
+    new RegExp(`(\\r\\n *(?:5|330|350)\\r\\n)${own}\\r\\n`, "g"),
+    "$1abcdef\r\n",
+  );
+
+  assert.notEqual(lower, text);
+  assert.deepEqual((await geometry(new TextEncoder().encode(lower))).edits?.[0]?.name, "rev-1");
+});
+
 test("a name the file holds is the file's: another definition of it is refused", async () => {
   const read = await geometry(firmFile());
 

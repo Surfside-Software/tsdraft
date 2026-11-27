@@ -628,9 +628,21 @@ export interface DimensionTextParts {
  * and below it. A text of `<>` alone over the line is the measurement, and is left out.
  */
 export function dimensionTextParts(held: string): DimensionTextParts {
-  const at = held.indexOf("\\X");
+  let at = -1;
 
-  if (at < 0) return held === "" ? {} : { text: held };
+  // A backslash escapes the character after it, so a doubled backslash and an X are text.
+  for (let i = 0; i < held.length - 1; i++) {
+    if (held[i] !== "\\") continue;
+
+    if (held[i + 1] === "X") {
+      at = i;
+      break;
+    }
+
+    i++;
+  }
+
+  if (at < 0) return held === "" || held === "<>" ? {} : { text: held };
   const text = held.slice(0, at);
 
   return { ...(text !== "<>" && { text }), textBelow: held.slice(at + 2) };

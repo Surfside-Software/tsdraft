@@ -22,13 +22,28 @@
 - `tsdraft mcp`: a cancelled `render`, or one a program left running when it ended, stops its
   build, and the next render no longer waits for it; a waiting program process that died is no
   longer handed the next `execute`, which then waited for its time limit; a brief lists errors
-  before warnings.
+  before warnings. A waiting build process whose answer came after its builder was closed, as
+  when `render` is given other options, no longer starts two more that never end.
 - `tsdraft shows` says `xrefsCapped` when an xref given lies more than 16 deep, as it does past 64
   reads.
 - `tsdraft write` takes away no file outside its out folder that a record there names, and a copy
   whose record cannot be written is taken away again and reported as not written.
 - The read cache tells a reader apart by its WebAssembly and native files too, and a kept read that
   fails its check is removed, so the next build reads the file again.
+- A read refuses with a `ReadError` a file of more than `CENSUS_LIMIT` layers, linetypes, text
+  styles, dimension styles, block records, blocks, xrefs, spaces or layouts, where it used to
+  hold each however many the file made. Where layouts name one paper space, the first in the file
+  shows it, and each other shows nothing and is counted under `unread.malformed`, where each
+  copied the space's viewports again. An edit's record is found in a file that writes its handles
+  in lower case.
+- A dimension's text is cut at a `\X` only where no backslash escapes it, and a text of `<>`
+  alone reads as the measurement. A solid's edge whose parameters are a whole turn apart draws as
+  a whole circle or ellipse, where it drew as nothing.
+- The picture of a read finds an xref's read by its name in any case and under any name, such as
+  `__proto__`, counts a read given for an xref that is not a `DrawingRead`, and a solid's spline
+  edge of a degree over 11, as drawing nothing, and gives a viewport an id only from a
+  hexadecimal handle. `checkDrawingRead` names an entity's kind such as `constructor` as no
+  entity's kind.
 - Agent feedback, off unless the user turns it on with `tsdraft feedback mode on`: `tsdraft feedback`
   and a `feedback` tool of `tsdraft mcp` let an agent report where tsdraft got in its way, as a kind
   and a subject from lists, with three short texts in its own words. Only the report's id, kind,
