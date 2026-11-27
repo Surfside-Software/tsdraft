@@ -10,7 +10,7 @@ import { addedOf, readAdditionsFile, type Added } from "./added.ts";
 import { canonicalHandle, checkEdit, MADE_KINDS, statementCall, type Edit } from "./model.ts";
 import { replacement, writesAdditions } from "./replaced.ts";
 import { movedEntity, NOT_MOVED, NOT_SCALED } from "./moved.ts";
-import { editReach, indexRead, type Located, type ReadIndex } from "./reach.ts";
+import { editReach, indexRead, ownPicture, type Located, type ReadIndex } from "./reach.ts";
 import { planKey, stretchPlan } from "./stretch.ts";
 import { applied } from "./transform.ts";
 import {
@@ -37,6 +37,10 @@ const KIND_NAMES: Partial<Record<ReadEntity["kind"], string>> = {
   mtext: "a paragraph in columns",
   multileader: "a multileader",
   dimension: "a dimension",
+  "radial-dimension": "a dimension",
+  "angular-dimension": "a dimension",
+  "ordinate-dimension": "a dimension",
+  "arc-length-dimension": "a dimension",
   table: "a table",
 };
 
@@ -168,6 +172,46 @@ function missingWhy(read: DrawingRead): string {
   return "";
 }
 
+/**
+ * How many times the file inserts a block, or undefined where the read cannot tell: a read that
+ * leaves entities out counts the inserts of its spaces' censuses, which stay whole, and of the
+ * blocks, unless a census stopped at its limit or a block's definition did.
+ */
+function insertsOf(read: DrawingRead, index: ReadIndex, name: string): number | undefined {
+  const spaces = [read.model, ...read.layouts];
+
+  const partial =
+    read.only !== undefined ||
+    spaces.some(
+      (s) => (s.other?.[OUTSIDE_THE_READ] ?? 0) > 0 || (s.other?.["past the limit"] ?? 0) > 0,
+    );
+
+  const blocksWhole = read.blocks.every((b) => (b.other["past the limit"] ?? 0) === 0);
+
+  if (!partial && blocksWhole) return index.inserts.get(name) ?? 0;
+
+  if (!blocksWhole || spaces.some((s) => s.census.capped)) return undefined;
+  let counts = wholeInserts.get(read);
+
+  if (counts === undefined) {
+    const made = new Map<string, number>();
+
+    const count = (block: string): void => {
+      made.set(layerKey(block), (made.get(layerKey(block)) ?? 0) + 1);
+    };
+
+    for (const s of spaces) for (const i of s.census.inserts) count(i.block);
+
+    for (const b of read.blocks)
+      for (const e of b.entities) if (e.kind === "insert") count(e.block);
+    wholeInserts.set(read, (counts = made));
+  }
+
+  return counts.get(layerKey(name)) ?? 0;
+}
+
+const wholeInserts = new WeakMap<DrawingRead, ReadonlyMap<string, number>>();
+
 /** The entity a move, a stretch or a vertices statement leaves, or undefined where it is as it was. */
 function entityAfter(
   edit: Edit,
@@ -291,6 +335,20 @@ export function handleProblem(
       `${h} clips the viewport ${clipped}, whose box it holds: it moves with the viewport, in a move of both`,
     );
 
+  // A dimension's picture is in the world's coordinates, and moves with it only where it is its alone.
+  if (
+    s.kind !== "erase" &&
+    s.kind !== "change" &&
+    DIMENSIONS.has(e.kind) &&
+    "blockHandle" in e &&
+    e.blockHandle !== undefined &&
+    ownPicture(index, e) === undefined
+  )
+    return error(
+      "edit-part",
+      `${h} is a dimension whose picture block is not its alone, so no edit ${verb} it: erase it and draw it again`,
+    );
+
   if (NOT_MOVED.has(e.kind))
     return error(
       "edit-modeler",
@@ -365,20 +423,22 @@ export function handleProblem(
   if (at.space.kind === "block") {
     const name = at.space.name;
     const block = index.blocks.get(name);
-    const xref = read.xrefs.some((x) => x.name === name);
-    const uses = index.inserts.get(name) ?? 0;
+    // An xref, or a block an xref's file holds, which the leading CAD app names with its `|`.
+    const xref = name.includes("|") || read.xrefs.some((x) => layerKey(x.name) === layerKey(name));
+    const uses = insertsOf(read, index, name);
 
     if (
       block === undefined ||
       block.anonymous ||
       name.startsWith("*") ||
       xref ||
+      uses === undefined ||
       uses > 1 ||
       index.insertsInBlocks.has(name)
     )
       return error(
         "edit-block",
-        `${h} is of the block ${JSON.stringify(name)}, ${xref ? "an xref" : block?.anonymous || name.startsWith("*") ? "which the file names itself" : uses > 1 ? `which the file inserts ${uses} times` : "which another block inserts"}: changing it would change every insert of it`,
+        `${h} is of the block ${JSON.stringify(name)}, ${xref ? "an xref" : block?.anonymous || name.startsWith("*") ? "which the file names itself" : uses === undefined ? "whose inserts the read does not all list" : uses > 1 ? `which the file inserts ${uses} times` : "which another block inserts"}: changing it would change every insert of it`,
       );
 
     return {
@@ -413,6 +473,18 @@ export function lintEdit(
     } else past++;
   };
 
+  // What goes past the limit is one error, which the list ends with.
+  const finish = (): EditDiagnostic[] => {
+    if (past > 0)
+      out.push({
+        rule: "edit-limit",
+        severity: "error",
+        message: `${past} more diagnostics past the ${most} listed`,
+      });
+
+    return out;
+  };
+
   try {
     const problems = checkEdit(edit);
 
@@ -423,7 +495,7 @@ export function lintEdit(
         message: `The edit is malformed: ${problems.join("; ")}`,
       });
 
-      return out;
+      return finish();
     }
 
     if (read.sha256 !== edit.sha256)
@@ -456,7 +528,7 @@ export function lintEdit(
         message: "The read has no geometry, so it holds no entity an edit can name",
       });
 
-      return out;
+      return finish();
     }
 
     const index = indexRead(read);
@@ -599,14 +671,7 @@ export function lintEdit(
     });
   }
 
-  if (past > 0)
-    out.push({
-      rule: "edit-limit",
-      severity: "error",
-      message: `${past} more diagnostics past the ${most} listed`,
-    });
-
-  return out;
+  return finish();
 }
 
 /**
@@ -721,6 +786,10 @@ function lintAdditions(edit: Edit, read: DrawingRead, report: (d: EditDiagnostic
       case "multileader":
         return standIn(e.textStyle);
       case "dimension":
+      case "radial-dimension":
+      case "angular-dimension":
+      case "ordinate-dimension":
+      case "arc-length-dimension":
         return dimensionText(e.style);
       case "table":
         return tableText(e);

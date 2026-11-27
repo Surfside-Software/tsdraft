@@ -58,7 +58,8 @@ export default editDrawing(
 
 A handle is the hexadecimal digits the read gives, in any case. `e.erase(...handles)` erases each
 entity with what it owns: an insert's attributes, a 2D polyline's vertices, a dimension's or a
-table's picture, its extension dictionary, an image's reactor and a text's fields. Each reference
+table's picture, kept where another record names its block too, its extension dictionary, an
+image's reactor and a text's fields. Each reference
 to what goes is taken out: from a group's list, which is kept when it is left empty, from a sort
 table, from another object's reactors, from a block's list of its inserts and from the list of
 fields. An `OLE2FRAME` a space's `unread` lists may be erased, and nothing else of a kind the
@@ -76,7 +77,8 @@ definition, in the block's coordinates, with the warning `edit-block-definition`
 statements reach, one the read does not hold or keeps outside `only`, a move of one out of what
 `only` keeps, `edit-only`, an attribute or a picture's
 entity named alone, an entity of a block inserted more than once, of an anonymous block or of an
-xref, a 3D solid, a region or a body, a turn or a scale of a dimension, since the leading CAD
+xref, by its name in any case or a name with `|`, or of a block whose inserts a read in part does not
+all list, a move of a dimension whose picture block is not its alone, a 3D solid, a region or a body, a turn or a scale of a dimension, since the leading CAD
 app draws its picture again, a scale of a table or of paragraph text whose codes set a height of its own, a turn or a
 scale of an old leader with its note,
 an old leader and its note apart, and a turn or a scale of a viewport. An entity on a locked layer is erased or moved with the
@@ -277,7 +279,8 @@ the edit's name, the addition's id, or `@model/3` for the fourth of model space 
 `@layout/Sheet1/3` for one of a layout, the handle it was written with, and a hash of what it held, `markHash`. The file keeps a record of each
 edit's additions, an `XRECORD` of the edit's name in the dictionary `TSDRAFT` of the named object
 dictionary: group 70 the mark's format, then each id, group 1, and its handle, group 2. Both readers
-give an entity's `mark` and the file's `edits`. An id is compared without regard to case, and one the edit gives may not start with `@`.
+give an entity's `mark`, only for five strings of format 1 with a handle, and the file's `edits`,
+each addition with a handle in capitals and with no leading zero. An id is compared without regard to case, and one the edit gives may not start with `@`.
 
 `markUnchanged(entity)` is true of an entity whose mark holds its own handle and whose hash matches
 what it holds: it is still the one the edit wrote. A copy a person makes with the leading CAD app's
@@ -303,7 +306,8 @@ An edit of another name leaves them alone, and may erase or move one by handle a
 entity. `replacement(read, edit)` says what an edit makes of an earlier one's additions.
 
 `lintEdit` refuses an addition the writers cannot make: additions that do not hold a drawing's shape
-or hold more than 100,000 items, a file with no `$HANDSEED`, a style of the file tsdraft does not
+or hold more than 100,000 items, a file with no `$HANDSEED` or one not above a handle the file
+holds, a style of the file tsdraft does not
 draw in, such as one whose arrowhead it does not draw, a linear or aligned dimension at an angle in a
 style that keeps its text level, a radial dimension whose text is placed along it in such a style,
 a justified text in the file's `Standard` when its font is not the one tsdraft measures

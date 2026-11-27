@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  CENSUS_LIMIT,
   checkEditedCopy,
   BUILT_IN_STANDARD,
   createDrawing,
@@ -13,8 +14,11 @@ import {
   editedRead,
   EditError,
   lintEdit,
+  markOf,
   markUnchanged,
   readDXF,
+  recordAdditions,
+  replacement,
   toDXF,
   type DrawingRead,
   type EditBuilder,
@@ -172,6 +176,132 @@ test("a later edit of the same name writes an unchanged addition over itself, er
     ["edit-mark-changed"],
   );
   assert.throws(() => editDXF(moved.out!, third.edit, third.read), EditError);
+});
+
+test("additions need a $HANDSEED above every handle of the file", async () => {
+  const text = new TextDecoder().decode(firmFile());
+  const line = (e: EditBuilder) => e.model((d) => d.layer("A-NOTE", () => d.line([0, 0], [1, 1])));
+
+  for (const bytes of [
+    text.replace(/9\r\n\$HANDSEED\r\n5\r\n[0-9A-F]+\r\n/, ""),
+    text.replace(/(\$HANDSEED\r\n5\r\n)[0-9A-F]+/, "$11"),
+  ].map((t) => new TextEncoder().encode(t))) {
+    const read = await geometry(bytes);
+
+    const edit = editDrawing({ file: "firm.dxf", sha256: read.sha256, name: "rev-1" }, line).build(
+      read,
+    );
+
+    assert.ok(
+      lintEdit(edit, read).some((d) => d.severity === "error" && /\$HANDSEED/.test(d.message)),
+    );
+    assert.throws(() => editDXF(bytes, edit, read), EditError);
+    assert.deepEqual(editedRead(read, edit), read);
+    // The writer reads the file's own handles, past what a read lists.
+    const told = { ...read, header: { ...read.header, handseed: "FFFFF" } };
+    assert.throws(() => editDXF(bytes, edit, told), /is not above its handle|no \$HANDSEED/);
+  }
+});
+
+test("additions with a change of an xref's layer write both $VISRETAIN and $HANDSEED", async () => {
+  const text = new TextDecoder()
+    .decode(firmFile())
+    .replace(
+      /(2\r\n)A-OFF(\r\n[^]*?390\r\n[0-9A-F]+\r\n)/,
+      "$1BASE|OFF$21001\r\nAcXRefLayerPropertyOverride\r\n1071\r\n0\r\n",
+    )
+    .replace(/(\$ACADVER\r\n1\r\nAC1032\r\n)/, "$19\r\n$$VISRETAIN\r\n70\r\n0\r\n");
+
+  const source = new TextEncoder().encode(text);
+
+  const { out, read, edit } = await edited(source, "rev-1", (e) => {
+    e.layer("BASE|OFF", { color: 4 });
+    e.model((d) => d.layer("A-NOTE", () => d.line([0, 0], [1, 1])));
+  });
+
+  const back = await geometry(out!);
+  const seed = BigInt(`0x${back.header.handseed}`);
+  assert.ok(added(back).every((e) => BigInt(`0x${e.handle}`) < seed));
+  const written = new TextDecoder().decode(out);
+  assert.match(written, /\$VISRETAIN\r\n70\r\n1\r\n/);
+  // Any other change of the header fails the checks, one the read reads nothing of too.
+  const xedit = new TextEncoder().encode(written.replace(/(\$XEDIT\r\n290\r\n)0/, "$11"));
+  const checks = await checkEditedCopy(dxfEditor, source, read, edit, xedit);
+  assert.match(
+    checks.find((c) => c.check === "before-after")!.problems.join(),
+    /the header changed past its \$HANDSEED/,
+  );
+});
+
+test("a record the additions change is written again only from UTF-8", async () => {
+  const bytes = firmFile();
+  const at = new TextDecoder().decode(bytes).indexOf("3\r\nACAD_GROUP\r\n") + 13;
+  const latin1 = new Uint8Array([...bytes.subarray(0, at), 0xe9, ...bytes.subarray(at)]);
+  const read = await geometry(latin1);
+
+  const edit = editDrawing({ file: "firm.dxf", sha256: read.sha256, name: "rev-1" }, (e) =>
+    e.model((d) => d.layer("A-NOTE", () => d.line([0, 0], [1, 1]))),
+  ).build(read);
+
+  assert.throws(() => editDXF(latin1, edit, read), /is not UTF-8/);
+});
+
+test("an addition to a space whose census lists its limit leaves the list at its limit", async () => {
+  const bytes = firmFile();
+  const whole = await geometry(bytes);
+
+  const text = {
+    handle: "FFFFF",
+    kind: "TEXT" as const,
+    layer: "0",
+    style: "Standard",
+    at: [0, 0] as const,
+    height: 1,
+  };
+
+  const texts = Array.from({ length: CENSUS_LIMIT }, () => text);
+  const read = { ...whole, model: { ...whole.model, census: { ...whole.model.census, texts } } };
+
+  const edit = editDrawing({ file: "firm.dxf", sha256: read.sha256, name: "rev-1" }, (e) =>
+    e.model((d) => d.layer("A-NOTE", () => d.text([0, 0], "NOTE", { height: 1 }))),
+  ).build(read);
+
+  const census = editedRead(read, edit).model.census;
+  assert.deepEqual([census.texts.length, census.capped], [CENSUS_LIMIT, true]);
+});
+
+test("a later edit takes each handle of an earlier one's record once, for the id its mark holds", async () => {
+  const two = (e: EditBuilder) =>
+    e.model((d) =>
+      d.layer("A-NOTE", () => {
+        d.line([0, 5], [10, 5], { id: "a" });
+        d.line([0, 6], [10, 6], { id: "b" });
+      }),
+    );
+
+  const first = await edited(firmFile(), "rev-1", two);
+  const read = await geometry(first.out!);
+  const [record] = read.edits!;
+  const a = record!.additions.find((x) => x.id === "a")!.handle;
+
+  const tampered = {
+    ...read,
+    edits: [
+      {
+        ...record!,
+        additions: [
+          { id: "a", handle: a },
+          { id: "b", handle: a },
+        ],
+      },
+    ],
+  };
+
+  const edit = editDrawing({ file: "firm.dxf", sha256: read.sha256, name: "rev-1" }, two).build(
+    tampered,
+  );
+
+  assert.deepEqual([...replacement(tampered, edit).reuse.values()], [a]);
 });
 
 test("an addition on a layer that is off is a warning", async () => {
@@ -398,6 +528,10 @@ test("a style of the file in a font tsdraft does not hold takes a paragraph, and
     await refused((d) => d.linearDimension([0, 0], [8, 0], [0, -5], { style: "TB-DIMS" })),
     /laid out by tsdraft in the file's text style TB-TITLE/,
   );
+  assert.match(
+    await refused((d) => d.radiusDimension([0, 0], [3, 4], { style: "TB-DIMS" })),
+    /laid out by tsdraft in the file's text style TB-TITLE/,
+  );
   // A style and a block the edit defines itself are held to the same.
   assert.match(
     await refused((d) => {
@@ -425,5 +559,40 @@ test("a style of the file in a font tsdraft does not hold takes a paragraph, and
       d.insert("SIGN", [0, 0]);
     }),
     /block SIGN the edit adds holds a justified text laid out by tsdraft in the file's text style TB-TITLE/,
+  );
+});
+
+test("a mark is five strings of its format, and a record's addition an id and a handle", () => {
+  const hash = "0123456789abcdef0123456789abcdef";
+  assert.deepEqual(markOf(["1", "rev-1", "note", "1A3", hash]), {
+    format: "1",
+    name: "rev-1",
+    id: "note",
+    handle: "1A3",
+    hash,
+  });
+
+  for (const values of [
+    [1, undefined, {}, 255, null],
+    ["1", "rev-1", "note", "1A3", hash, "more"],
+    ["2", "rev-1", "note", "1A3", hash],
+    ["1", "rev-1", "", "1A3", hash],
+    ["1", "rev-1", "note", "", hash],
+    ["1", "rev-1", "note", "not a handle", hash],
+  ])
+    assert.equal(markOf(values), undefined, JSON.stringify(values));
+
+  const g = (code: number, value: string | number) => ({ code, value });
+  assert.deepEqual(
+    recordAdditions([
+      g(1, "a"),
+      g(2, " 01a3"),
+      g(2, "1F"),
+      g(1, "b"),
+      g(2, ""),
+      g(1, "c"),
+      g(2, 7),
+    ]),
+    [{ id: "a", handle: "1A3" }],
   );
 });

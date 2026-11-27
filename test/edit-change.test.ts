@@ -14,8 +14,10 @@ import {
   type Edit,
   type EditStatement,
 } from "../src/index.ts";
+import { placedText } from "../src/edit/text-change.ts";
 import { isString } from "../src/guards.ts";
 import { sha256 } from "../src/sha256.ts";
+import { wrong } from "./values.ts";
 
 test("a replacement in paragraph text takes the format in force where it starts, and keeps the rest", () => {
   const value = "Plain {\\fArial|b1|i0|c0|p34;BOLD WORDS} and {\\H1.5x;BIG} 1\\S1/2; INCH\\PNEXT";
@@ -48,8 +50,17 @@ test("a replacement in paragraph text takes the format in force where it starts,
   refused("and {", /found nowhere/);
   refused("N", /more than once/);
   refused("and B", /\{ whose group goes on after it/);
-  // A `%%` code reads as what it draws.
+  // A `%%` code reads as what it draws, and the replacement makes none.
   assert.equal(changedParagraph("A 90%%d NOTE", { replace: ["90°", "45°"] }), "A 45° NOTE");
+
+  for (const [text, from, to] of [
+    ["A 90 NOTE", "90", "45%%d"],
+    ["A 90%d NOTE", "90", "45%"],
+  ] as const) {
+    const made = changedParagraph(text, { replace: [from, to] });
+    assert.ok(!isString(made) && /make a %% code/.test(made.problem), JSON.stringify(made));
+  }
+
   // A code that changes what comes after it, outside a group the replacement holds whole.
   const lasting = changedParagraph("A \\H2x;B C", { replace: ["A B", "X"] });
   assert.ok(!isString(lasting) && /changes the characters after it/.test(lasting.problem));
@@ -277,4 +288,68 @@ test("a changed text keeps its carets, and one seen from below is not placed aga
 
 test("a replacement that would split a pair of surrogates is refused", () => {
   assert.ok(!isString(changedParagraph("A\u{1F600}B", { replace: ["\ud83d", "X"] })));
+});
+
+test("a pen set to ByLayer with a linetype added in its place leaves the color out", async () => {
+  const d = createDrawing({ units: "ft" });
+  d.line([0, 0], [1, 0], { color: 1 });
+  const bytes = new TextEncoder().encode(toDXF(d.build()));
+  const read = await readDXF(bytes, { geometry: true });
+  const line = read.model.entities![0]!;
+
+  const edit = editOf(bytes, [
+    { kind: "change", handle: line.handle!, changes: { color: 256, linetype: "ByBlock" } },
+  ]);
+
+  const back = await readDXF(editDXF(bytes, edit, read), { geometry: true });
+  const after = back.model.entities![0]!;
+  assert.deepEqual([after.color, after.linetype], [undefined, "ByBlock"]);
+});
+
+test("a viewport's frozen layers are the ones it freezes after the edit", async () => {
+  const d = createDrawing({ units: "ft" });
+
+  for (const name of ["A", "B", "C"]) d.layer(name, { color: 2 });
+  d.layer("VIEW", { color: 4, plot: false });
+  d.layout("S", { paper: "ARCH B" }, (page) =>
+    d.layer("VIEW", () =>
+      page.viewport([1, 1], 7, 10, { center: [5, 2.5], ratio: 12, frozenLayers: ["A", "B"] }),
+    ),
+  );
+  const bytes = new TextEncoder().encode(toDXF(d.build()));
+  const read = await readDXF(bytes, { geometry: true });
+  const viewport = read.layouts[0]!.viewports.find((v) => v.frozenLayers.length > 0)!;
+
+  const frozen = async (freeze: string[], thaw: string[]): Promise<readonly string[]> => {
+    const edit = editOf(bytes, [
+      { kind: "viewport", handle: viewport.handle!, changes: { freeze, thaw } },
+    ]);
+
+    const back = await readDXF(editDXF(bytes, edit, read), { geometry: true });
+
+    return back.layouts[0]!.viewports.find((v) => v.handle === viewport.handle)!.frozenLayers;
+  };
+
+  assert.deepEqual(await frozen([], ["A"]), ["B"]);
+  assert.deepEqual(await frozen(["C"], []), ["A", "B", "C"]);
+});
+
+test("an aligned or fit text whose two points are one takes no size", () => {
+  const styles = [{ name: "Standard", font: "txt.shx" }];
+
+  for (const align of ["aligned", "fit"] as const) {
+    const text = {
+      at: [0, 0] as const,
+      startFrom: "file" as const,
+      stored: [0, 0] as const,
+      alignAt: [0, 0] as const,
+      height: 1,
+      rotation: 0,
+      style: "Standard",
+      align,
+    };
+
+    assert.equal(placedText(text, "AB", 1, wrong(styles)), undefined);
+    assert.ok(placedText({ ...text, alignAt: [4, 0] }, "AB", 1, wrong(styles)) !== undefined);
+  }
 });

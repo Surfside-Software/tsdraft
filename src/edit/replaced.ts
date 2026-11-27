@@ -131,6 +131,8 @@ export function replacement(read: DrawingRead, edit: Edit): Replacement {
   const problems: ReplacementProblem[] = [];
   const kindChanged: string[] = [];
 
+  const seen = new Set<string>();
+
   for (const { id, handle: given } of record.additions) {
     // A definition the edit added is the file's now, and an addition uses it as the file's.
     if (id.startsWith("@") && !PLACE.test(id)) continue;
@@ -138,10 +140,16 @@ export function replacement(read: DrawingRead, edit: Edit): Replacement {
     const found = entities.get(handle);
     const next = ids.get(idKey(id));
 
+    // The entity is still this addition's: unchanged, and marked with the edit's name and the id.
     const unchanged =
-      found !== undefined && markUnchanged(found.e) && found.e.mark?.name === edit.name;
+      found !== undefined &&
+      markUnchanged(found.e) &&
+      found.e.mark?.name === edit.name &&
+      idKey(found.e.mark.id) === idKey(id);
 
-    if (erasedByStatement.has(handle)) continue;
+    // A record that lists one handle twice gives it to the first id alone.
+    if (erasedByStatement.has(handle) || seen.has(handle)) continue;
+    seen.add(handle);
 
     // A read with `only` may leave it out: what it is, the edit cannot tell.
     if (found === undefined && read.only !== undefined) {

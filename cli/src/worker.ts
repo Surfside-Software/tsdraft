@@ -1889,6 +1889,7 @@ async function preview({
           edited: read,
           erased: new Set<string>(),
           moved: new Set<string>(),
+          added: new Set<string>(),
           drawn: read,
           blocks: new Set<string>(),
           redrawn: new Set<string>(),
@@ -1899,7 +1900,7 @@ async function preview({
     const changed = after !== read;
     const { fontsOf } = context;
     const change = { erased: shown.erased, changed: shown.moved };
-    const marks = { erased: shown.erased, moved: shown.moved, read };
+    const marks = { erased: shown.erased, moved: shown.moved, added: shown.added, read };
     let svg: string | null = null;
     let min: [number, number] = [0, 0];
     let max: [number, number] = [0, 0];

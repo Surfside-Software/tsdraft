@@ -31,7 +31,12 @@ export interface PictureChanges {
   readonly erased?: ReadonlySet<string>;
   /** The handles, as the read gives them, of the entities it moves. */
   readonly moved?: ReadonlySet<string>;
-  /** The picture of the moved entities where they go, as `PictureChange.drawn` holds it. */
+  /** The handles, as the read after the edit gives them, of the entities it adds. */
+  readonly added?: ReadonlySet<string>;
+  /**
+   * The picture of the moved entities where they go, and of those it adds, as
+   * `PictureChange.drawn` holds it.
+   */
   readonly drawn?: PictureInPieces;
   /**
    * The read of the file the edit is in, whose boxes size the dashes: each a twelfth of its
@@ -64,6 +69,7 @@ const round = (n: number): number => Number(n.toPrecision(6));
 export function changesPicture(kept: PictureInPieces, change: PictureChanges): string {
   const erased = change.erased ?? new Set<string>();
   const moved = change.moved ?? new Set<string>();
+  const added = change.added ?? new Set<string>();
   const sizes = change.read ? sizesOf(change.read) : undefined;
 
   const dashes = (handle: string | undefined): string => {
@@ -107,13 +113,23 @@ export function changesPicture(kept: PictureInPieces, change: PictureChanges): s
 
   const drawnRuns = change.drawn ? runsOf(change.drawn.pieces) : new Map<string, PictureRun>();
 
-  /** A run with each fragment marked, and the moved drawn where they go after the rest. */
+  /** A run with each fragment marked, and the moved and the added drawn where they go after the rest. */
   const marked = (run: PictureRun, drawn: PictureRun | undefined): PictureRun => {
     const fragments = run.fragments.map((f) => wrap(f, markOf(f)));
 
-    for (const f of drawn?.fragments ?? [])
-      if (f.handle !== undefined && moved.has(f.handle))
-        fragments.push(f.svg ? { ...f, svg: `<g data-change="moved">${f.svg}</g>` } : f);
+    for (const f of drawn?.fragments ?? []) {
+      const kind =
+        f.handle === undefined
+          ? undefined
+          : moved.has(f.handle)
+            ? "moved"
+            : added.has(f.handle)
+              ? "added"
+              : undefined;
+
+      if (kind !== undefined)
+        fragments.push(f.svg ? { ...f, svg: `<g data-change="${kind}">${f.svg}</g>` } : f);
+    }
 
     return { ...run, fragments };
   };
@@ -347,8 +363,10 @@ export interface EditPreview {
   readonly erased: ReadonlySet<string>;
   /** The same of those it moves and changes, each drawn where it is after the edit. */
   readonly moved: ReadonlySet<string>;
+  /** The same of those it adds, as the read after the edit gives them. */
+  readonly added: ReadonlySet<string>;
   /**
-   * The edited read with only the entities it moves at the top of each space: its picture, with
+   * The edited read with only the entities it moves and adds at the top of each space: its picture, with
    * the options of the kept one, is the `drawn` of `editedPicture` and `changesPicture`.
    */
   readonly drawn: DrawingRead;
@@ -378,6 +396,7 @@ export function editPreview(read: DrawingRead, edit: Edit): EditPreview {
     edited,
     erased: new Set(),
     moved: new Set(),
+    added: new Set(),
     drawn: edited,
     blocks: new Set(),
     redrawn: new Set(),
@@ -460,8 +479,15 @@ export function editPreview(read: DrawingRead, edit: Edit): EditPreview {
 
   for (const l of read.layouts) keep(l.name, l.entities);
 
+  const added = new Set<string>();
+
   const addedIn = (space: string, entities: readonly ReadEntity[]): ReadEntity[] =>
-    entities.filter((e) => e.handle !== undefined && !(held.get(space)?.has(e.handle) ?? false));
+    entities.filter((e) => {
+      if (e.handle === undefined || (held.get(space)?.has(e.handle) ?? false)) return false;
+      added.add(e.handle);
+
+      return true;
+    });
 
   // The picture reads no census, and a census in proportion to the file would cost its check.
   const drawn: DrawingRead = {
@@ -488,5 +514,5 @@ export function editPreview(read: DrawingRead, edit: Edit): EditPreview {
     ),
   };
 
-  return { edited, erased, moved, drawn, blocks, redrawn, whole };
+  return { edited, erased, moved, added, drawn, blocks, redrawn, whole };
 }

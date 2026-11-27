@@ -72,6 +72,36 @@
 - A refused insert keeps none of the handles of its attributes, so the same call can be made again,
   and a refused `titleBlock()` leaves no xref. A long run of soft hyphens in a name no longer slows
   `lint` down, and a lone surrogate in a justified paragraph no longer shifts what follows it.
+- An edit's additions refuse a file whose `$HANDSEED` is missing, not a handle, or not above a
+  handle the file holds, so a new handle is never one the file has. The DXF writer reads every
+  record's handle for it, and writes the seed again when the edit also changes the header, as a
+  change of an xref's layer sets `$VISRETAIN`.
+- An erased dimension or table keeps its picture block where another record names that block too,
+  and a move of a dimension whose picture is not its alone is refused. The picture of a dimension
+  in a block's definition is that dimension's, as one in a space is.
+- An entity of a block's definition is refused an edit when the read leaves entities out and the
+  censuses do not show every insert of the block, and in a block of an xref named in another case
+  or with `|`.
+- A change that sets a color to ByLayer and adds a linetype now leaves the color out, and a
+  viewport's changed frozen layers are the ones it freezes after the edit: the first one it froze
+  was written back before.
+- The picture of an edit's changes draws what it adds, as `data-change="added"`, from
+  `editPreview`'s new `added`, which `changesPicture` takes.
+- A replacement in paragraph text that would read as a `%%` code, such as `45%%d`, is refused, and
+  an aligned or fit text whose two points are one takes no size from a change.
+- `markOf` gives a mark only for five strings of format 1 with a handle, and `recordAdditions`
+  leaves out an addition with no id or no handle, and gives each handle in capitals and with no
+  leading zero. A later edit takes each handle of an earlier one's record once, for the id its
+  mark holds.
+- The DXF writer refuses to write again a record the additions change that is not UTF-8, as a 2018
+  file holds its text, where it would have replaced the bytes.
+- `lintEdit` ends a list past its `most` with `edit-limit` for a malformed edit too, `checkEdit`
+  refuses an addition that is not an object, and the before and after check compares the header
+  of a copy whose edit sets `$VISRETAIN`, but for that value and the seed.
+- The edited read keeps a census's counts right when an erased entity is past where its list
+  stops, and a census list at its limit when additions join it. A dimension of the additions in
+  any kind is held to a file style's font as a linear one is.
+
 - Agent feedback, off unless the user turns it on with `tsdraft feedback mode on`: `tsdraft feedback`
   and a `feedback` tool of `tsdraft mcp` let an agent report where tsdraft got in its way, as a kind
   and a subject from lists, with three short texts in its own words. Only the report's id, kind,

@@ -23,7 +23,7 @@ import { readDrawing } from "../shape.ts";
 import { layerKey } from "../layers.ts";
 import { isString } from "../guards.ts";
 import type { DrawingRead } from "../read/model.ts";
-import { fileTables, STANDARD_STAND_IN, type FileTables } from "./file-tables.ts";
+import { fileTables, isStandIn, type FileTables } from "./file-tables.ts";
 import { EditError, type Edit } from "./model.ts";
 import { placeId } from "./replaced.ts";
 
@@ -192,8 +192,7 @@ const LISTED_OBJECTS: ReadonlySet<string> = new Set(["MLEADERSTYLE", "TABLESTYLE
 const TABLE_ORDER = ["LAYER", "LTYPE", "STYLE", "DIMSTYLE"];
 
 /** The names of the file's `Standard` styles' stand-in, by `layerKey`, to the file's name. */
-const standIn = (name: string): string =>
-  layerKey(name).startsWith(layerKey(STANDARD_STAND_IN)) ? "Standard" : name;
+const standIn = (name: string): string => (isStandIn(name) ? "Standard" : name);
 
 const hexOf = (n: bigint): string => n.toString(16).toUpperCase();
 
@@ -321,8 +320,7 @@ function used(
 
   walkAll(entities);
 
-  for (const key of want.dimensionStyles) textStyle(all.dimensionStyles.get(key)?.textStyle);
-
+  // A leader style's block may hold a leader of another style, or a dimension.
   for (const key of want.leaderStyles) {
     const s = all.leaderStyles.get(key);
     textStyle(s?.textStyle);
@@ -332,6 +330,8 @@ function used(
       walkAll([]);
     }
   }
+
+  for (const key of want.dimensionStyles) textStyle(all.dimensionStyles.get(key)?.textStyle);
 
   for (const key of want.tableStyles) textStyle(all.tableStyles.get(key)?.textStyle);
 
@@ -887,6 +887,15 @@ export function planAdditions(
     w.objects.splice(0, w.objects.length, ...kept);
   });
 
+  // Each transplant by its handle, the first that takes it, and by its space and handle.
+  const madeAs = new Map<string, Transplant>();
+  const madeIn = new Set<string>();
+
+  for (const t of transplants) {
+    if (!madeAs.has(t.handle)) madeAs.set(t.handle, t);
+    madeIn.add(`${t.space}:${t.handle}`);
+  }
+
   // The file's records that name a new one: a dictionary's entries, and lists in 102 groups.
   spaces.forEach((w, s) => {
     const added = new Set(w.objects.map((r) => r.handle!));
@@ -897,8 +906,8 @@ export function planAdditions(
 
       // A record a space adds is written whole from that space. A dictionary an earlier space
       // added takes this space's entries, as a dictionary of the file's does.
-      if (own === undefined || transplants.some((t) => t.handle === own && t.space === s)) continue;
-      const isNew = transplants.some((t) => t.handle === own);
+      if (own === undefined || madeIn.has(`${s}:${own}`)) continue;
+      const isNew = madeAs.has(own);
 
       if (r.kind === "DICTIONARY" || r.kind === "ACDBDICTIONARYWDFLT")
         for (let i = 0; i + 1 < r.groups.length; i++) {
@@ -925,7 +934,7 @@ export function planAdditions(
           const h = value.trim().toUpperCase();
           const t = w.handles.get(h);
 
-          if (t !== undefined && transplants.some((x) => x.handle === t && x.space === s))
+          if (t !== undefined && madeIn.has(`${s}:${t}`))
             patches.push({ kind: "list", record: own, list, code, handle: t });
         }
       }
@@ -933,6 +942,8 @@ export function planAdditions(
   });
 
   // Each new insert of a block the file holds joins the block record's list of its inserts.
+  const blockRecordsOf = new Map<number, Map<string, DrawnRecord>>();
+
   for (const t of transplants) {
     if (t.record.kind !== "INSERT") continue;
     const name = first(t.record, 2);
@@ -940,17 +951,29 @@ export function planAdditions(
 
     // A block the additions define lists its inserts as the drawing wrote it, and those of the
     // other spaces that insert it.
-    if (block !== undefined && !transplants.some((x) => x.handle === block))
+    if (block !== undefined && !madeAs.has(block))
       patches.push({ kind: "list", record: block, list: "{BLKREFS", code: 331, handle: t.handle });
     else if (block === undefined && name !== undefined) {
       const w = spaces[t.space]!;
+      let records = blockRecordsOf.get(t.space);
 
-      const drawn = w.records.find(
-        (r) => r.kind === "BLOCK_RECORD" && layerKey(first(r, 2) ?? "") === layerKey(name),
-      );
+      if (records === undefined) {
+        records = new Map();
+
+        for (const r of w.records)
+          if (r.kind === "BLOCK_RECORD") {
+            const key = layerKey(first(r, 2) ?? "");
+
+            if (!records.has(key)) records.set(key, r);
+          }
+
+        blockRecordsOf.set(t.space, records);
+      }
+
+      const drawn = records.get(layerKey(name));
 
       const own = drawn?.handle === undefined ? undefined : w.handles.get(drawn.handle);
-      const made = transplants.find((x) => x.handle === own);
+      const made = own === undefined ? undefined : madeAs.get(own);
 
       if (own !== undefined && made !== undefined && made.space !== t.space)
         patches.push({ kind: "list", record: own, list: "{BLKREFS", code: 331, handle: t.handle });

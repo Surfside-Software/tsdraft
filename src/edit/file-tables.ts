@@ -34,6 +34,10 @@ const BUILT_IN = new Set(["bylayer", "byblock", "continuous"]);
 /** The stand-in of the file's own `Standard` of a table, which the builder cannot define. */
 export const STANDARD_STAND_IN = "TSDRAFT-FILE-STANDARD";
 
+/** True for a name of the stand-in: `STANDARD_STAND_IN`, or it with `-` and a number of 2 or more. */
+export const isStandIn = (name: string): boolean =>
+  /^tsdraft-file-standard(?:-[2-9]|-[1-9]\d+)?$/.test(layerKey(name));
+
 /** The file's definitions, as the builder of an edit's additions takes them. */
 export interface FileTables extends FileDefinitions {
   /** What a dimension or leader style of the file cannot be drawn in, by its `layerKey`. */

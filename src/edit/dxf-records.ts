@@ -137,38 +137,65 @@ function blockRecords(r: Records): Map<string, number> {
   return out;
 }
 
-/**
- * How many times the file inserts each block, by name: every INSERT record, in a space, a block or
- * a picture and inside or outside a read's part, a block in rows and columns once for each.
- */
-function insertCounts(r: Records): Map<string, number> {
-  const out = new Map<string, number>();
+/** The kinds of record whose group 2 names the block of its picture. */
+const PICTURED = new Set(["DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION", "ACAD_TABLE"]);
+
+/** How the file names its blocks, by the block's name as the leading CAD app compares names. */
+interface BlockUses {
+  /**
+   * How many times the file inserts each block: every INSERT record, in a space, a block or a
+   * picture and inside or outside a read's part, a block in rows and columns once for each.
+   */
+  readonly inserts: ReadonlyMap<string, number>;
+  /** How many records name each block as an insert's, a dimension's or a table's. */
+  readonly named: ReadonlyMap<string, number>;
+}
+
+function blockUses(r: Records): BlockUses {
+  const inserts = new Map<string, number>();
+  const named = new Map<string, number>();
 
   for (let i = 0; i < r.doc.count; i++) {
-    if (r.kind(i) !== "INSERT") continue;
+    const kind = r.kind(i);
+
+    if (kind !== "INSERT" && !PICTURED.has(kind)) continue;
     const groups = r.groups(i);
     const name = firstOf(groups, 2);
 
     if (name === undefined) continue;
+    const key = layerKey(name);
+    named.set(key, (named.get(key) ?? 0) + 1);
+
+    if (kind !== "INSERT") continue;
 
     const times =
       Math.max(1, Number(firstOf(groups, 70) ?? 1)) * Math.max(1, Number(firstOf(groups, 71) ?? 1));
 
-    out.set(layerKey(name), (out.get(layerKey(name)) ?? 0) + (Number.isFinite(times) ? times : 2));
+    inserts.set(key, (inserts.get(key) ?? 0) + (Number.isFinite(times) ? times : 2));
   }
 
-  return out;
+  return { inserts, named };
 }
 
-/** The block record of a dimension's or a table's picture, which it alone names. */
-function pictureOf(r: Records, i: number, blocks: () => Map<string, number>): number | undefined {
-  const kind = r.kind(i);
-
-  if (!["DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION", "ACAD_TABLE"].includes(kind))
-    return undefined;
+/**
+ * The block record of a dimension's or a table's picture, and whether another record names that
+ * block too.
+ */
+function pictureOf(
+  r: Records,
+  i: number,
+  blocks: () => Map<string, number>,
+  uses: () => BlockUses,
+): { readonly record: number; readonly shared: boolean } | undefined {
+  if (!PICTURED.has(r.kind(i))) return undefined;
   const name = firstOf(r.groups(i), 2);
 
-  return name === undefined || !/^\*[DT]/i.test(name) ? undefined : blocks().get(layerKey(name));
+  if (name === undefined || !/^\*[DT]/i.test(name)) return undefined;
+  const record = blocks().get(layerKey(name));
+
+  return record === undefined
+    ? undefined
+    : { record, shared: (uses().named.get(layerKey(name)) ?? 0) > 1 };
 }
 
 /** The records owned by each record, by the owner's place. */
@@ -231,8 +258,8 @@ export function recordEdits(
   const following = new Set<number>();
   let blocks: Map<string, number> | undefined;
   const blocksOf = (): Map<string, number> => (blocks ??= blockRecords(r));
-  let inserts: Map<string, number> | undefined;
-  const insertsOf = (): Map<string, number> => (inserts ??= insertCounts(r));
+  let uses: BlockUses | undefined;
+  const usesOf = (): BlockUses => (uses ??= blockUses(r));
   let owned: Map<number, number[]> | undefined;
   const ownedOf = (): Map<number, number[]> => (owned ??= ownedBy(r));
   const erased = new Map<number, number>();
@@ -264,7 +291,7 @@ export function recordEdits(
         );
       // The read may not see every insert: one in a dimension's picture, or outside its part.
       const name = firstOf(r.groups(record), 2) ?? "";
-      const times = insertsOf().get(layerKey(name)) ?? 0;
+      const times = usesOf().inserts.get(layerKey(name)) ?? 0;
 
       if (times > 1)
         throw new EditError(
@@ -324,16 +351,24 @@ export function recordEdits(
         continue;
       }
 
-      const picture = pictureOf(r, i, blocksOf);
+      const picture = pictureOf(r, i, blocksOf, usesOf);
 
       if (s.kind === "erase") {
-        if (picture !== undefined) take(picture);
-      } else {
+        // A picture another record names stays for that one.
+        if (picture !== undefined && !picture.shared) take(picture.record);
+      } else if (picture !== undefined && r.kind(i) !== "ACAD_TABLE") {
         // A table's picture is in the table's own coordinates, and moves with it as it stands.
-        if (picture !== undefined && r.kind(i) !== "ACAD_TABLE")
-          for (const p of ownedOf().get(picture) ?? [])
-            if (r.section(p) === "BLOCKS" && !["BLOCK", "ENDBLK"].includes(r.kind(p))) take(p);
+        if (picture.shared)
+          throw new EditError(
+            `${handleOf(r, i)} is a dimension whose picture block another record names too, so no edit moves it`,
+            statement,
+          );
 
+        for (const p of ownedOf().get(picture.record) ?? [])
+          if (r.section(p) === "BLOCKS" && !["BLOCK", "ENDBLK"].includes(r.kind(p))) take(p);
+      }
+
+      if (s.kind !== "erase") {
         if (r.kind(i) === "VIEWPORT") {
           const clip = firstOf(r.groups(i), 340);
 
