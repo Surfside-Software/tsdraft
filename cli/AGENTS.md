@@ -172,6 +172,10 @@
   `src/readers.ts` reads no package.json but those on the walk to the project, the project's
   dependencies' and the one `--reader` names, and none inside an input path. Keep "Reading
   drawing files" in [docs/command.md](../docs/command.md) true when a limit or a rule changes.
+- `src/png-api.ts` is `tsdraft/png`, the library's PNG writer for Node: `toSVG`'s picture drawn
+  by `toPNG` in `src/png.ts`, so its bytes are the command's. A consumer type-checks its
+  declarations without Node's types, so it and `src/png-errors.ts` export none, and the build
+  ships only their two `.d.ts` files.
 - `@resvg/resvg-js` is an optional dependency. Only `src/png.ts` and `src/png-child.ts` load
   it, and only when a PNG is asked for or `tsdraft dev` starts. Without it the command still gives the SVG and the JSON,
   with the reason in `outputs.pngError`.

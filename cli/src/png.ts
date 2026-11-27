@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { faces, pictureFaces, shippedCap, type Face } from "./fonts.ts";
 import type { PngAnswer, PngRequest } from "./png-child.ts";
+import { PngTooLarge, PngUnavailable, RendererCrashed } from "./png-errors.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -45,24 +46,6 @@ export function pngUnavailable(): string | null {
   return unavailable;
 }
 
-/**
- * Thrown for a picture the renderer gave no PNG for: its process could not be started, died
- * while it drew the picture, or answered that it cannot draw it. The next picture is drawn all
- * the same, by a new process when this one is gone.
- */
-export class RendererCrashed extends Error {
-  constructor(how: string, when: "starting" | "drawing" | "answered") {
-    super(
-      when === "starting"
-        ? `No PNG: the renderer's process could not start (${how}). Use the SVG`
-        : `No PNG: the renderer @resvg/resvg-js ${
-            when === "drawing" ? "stopped while it drew" : "could not draw"
-          } this picture (${how}). Use the SVG. Other pictures are not affected`,
-    );
-    this.name = "RendererCrashed";
-  }
-}
-
 interface Waiting {
   readonly request: PngRequest;
   readonly done: (png: Uint8Array) => void;
@@ -77,16 +60,24 @@ let lastId = 0;
 
 /**
  * Starts the renderer's process, when it is not running. `toPNG` does it too. A command that
- * will want a PNG calls this first, so the process starts while the drawing is built.
+ * will want a PNG calls this first, so the process starts while the drawing is built. Gives the
+ * error when the process could not be started, and the next call tries again.
  */
-export function startRenderer(): void {
-  if (child || pngUnavailable() !== null) return;
+export function startRenderer(): Error | undefined {
+  if (child || pngUnavailable() !== null) return undefined;
 
-  const started = fork(childPath, [], {
-    serialization: "advanced",
-    stdio: ["ignore", "ignore", "ignore", "ipc"],
-    execArgv: [],
-  });
+  let started: ChildProcess;
+
+  try {
+    started = fork(childPath, [], {
+      serialization: "advanced",
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
+      execArgv: [],
+    });
+  } catch (error) {
+    // SAFETY: `fork` throws an Error, such as E2BIG for an environment too large to pass on.
+    return error as Error;
+  }
 
   child = started;
   // The process must not keep the command from ending. It ends itself when the command does.
@@ -120,6 +111,8 @@ export function startRenderer(): void {
   started.once("exit", (code, signal) => ended(signal ?? `exit code ${code}`));
   // Kept for the life of the process: an error with no listener would end the command.
   started.on("error", (error) => ended(error.message));
+
+  return undefined;
 }
 
 /** What to call when a process is found to be gone. */
@@ -127,6 +120,15 @@ const ends = new WeakMap<ChildProcess, (how: string) => void>();
 
 /** Sends the first waiting picture to the process, starting one when there is none. */
 function next(): void {
+  // A process that cannot start fails the picture it was started for, and the next one tries
+  // again. A loop, so that a long queue of failures cannot overflow the stack.
+  let failed = queue.length > 0 ? startRenderer() : undefined;
+
+  while (failed) {
+    queue.shift()?.failed(new RendererCrashed(failed.message, "starting"));
+    failed = queue.length > 0 ? startRenderer() : undefined;
+  }
+
   const waiting = queue[0];
 
   if (!waiting) {
@@ -136,7 +138,6 @@ function next(): void {
     return;
   }
 
-  startRenderer();
   const to = child;
 
   if (!to) return;
@@ -158,8 +159,9 @@ function next(): void {
  * renderer's process, with each TrueType font in the face `pictureFaces` of `fonts.ts` has
  * for it, and each text sized so that the capitals of the face it is drawn in are as tall as
  * the text. A width that would make more than `MAX_PIXELS` is narrowed to fit; the
- * result gives the width used. A picture that fits at no width is refused. Rejects with the reason when `pngUnavailable()` gives one, and
- * with a `RendererCrashed` when the renderer's process died on this picture.
+ * result gives the width used. Rejects with a `PngTooLarge` for a picture that fits at no width,
+ * a `PngUnavailable` with the reason `pngUnavailable()` gives, and a `RendererCrashed` when the
+ * renderer's process died on this picture.
  *
  * @param known - The faces to choose from. The machine's unless given.
  */
@@ -170,14 +172,14 @@ export async function toPNG(
 ): Promise<{ png: Buffer; width: number }> {
   const reason = pngUnavailable();
 
-  if (reason !== null) throw new Error(reason);
+  if (reason !== null) throw new PngUnavailable(reason);
   const [, , w = 1, h = 1] = (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? "").split(" ").map(Number);
   const aspect = Math.max(h, 1e-9) / Math.max(w, 1e-9);
   const fitted = Math.max(1, Math.min(width, Math.floor(Math.sqrt(MAX_PIXELS / aspect))));
 
   // Too tall even one pixel wide, or a box that is not numbers.
   if (!(fitted * fitted * aspect <= MAX_PIXELS)) {
-    throw new Error(`The picture cannot be drawn within ${MAX_PIXELS} pixels at any width`);
+    throw new PngTooLarge(`The picture cannot be drawn within ${MAX_PIXELS} pixels at any width`);
   }
 
   // The font files this picture's text is set in, beside the renderer's own.

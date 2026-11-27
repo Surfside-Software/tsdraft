@@ -368,9 +368,24 @@ Node 22.18 or later, and the project's `package.json` must say `"type": "module"
 [the guide for agents](GUIDE.md) describes the loop to work in.
 
 The PNG is drawn by `@resvg/resvg-js`, the package's one dependency. npm installs it, with a
-native build for the platform, unless optional packages are left out. Only the command loads
-it. Installed with `--omit=optional`, the command still writes the SVG and the JSON, and the
-JSON says why there is no PNG.
+native build for the platform, unless optional packages are left out. Only the command and
+`tsdraft/png` load it. Installed with `--omit=optional`, the command still writes the SVG and
+the JSON, and the JSON says why there is no PNG.
+
+A script on Node draws the same PNG without the command:
+
+```ts
+import { toPNG } from "tsdraft/png";
+
+writeFileSync("plan.png", await toPNG(drawing, { width: 800 }));
+```
+
+`toPNG(drawing, options)` takes the options of `toSVG`, such as `layout` and `view`, and
+`width`, 1600 pixels by default, and gives the bytes of the PNG `tsdraft render` writes of that
+picture, with the same fonts. `tsdraft` itself runs in a browser and loads no renderer, so
+`toPNG` comes from `tsdraft/png`. It draws in a process of its own, which does not keep the
+script from ending, so a picture the renderer stops on rejects with a `RendererCrashed` and
+the script goes on. Without the renderer it rejects with a `PngUnavailable` that says why.
 
 ## DXF versions
 

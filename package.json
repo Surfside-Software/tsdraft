@@ -40,6 +40,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./png": {
+      "types": "./cli/dist/png-api.d.ts",
+      "default": "./cli/dist/png-api.js"
+    },
     "./package.json": "./package.json",
     "./standard.json": "./standard.json",
     "./standard.schema.json": "./standard.schema.json"
@@ -47,7 +51,8 @@
   "scripts": {
     "clean": "node -e \"for (const dir of ['dist', 'cli/dist']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
     "build:lib": "tsc -p tsconfig.build.json",
-    "build": "pnpm clean && pnpm build:lib && tsc -p cli/tsconfig.build.json",
+    "build": "pnpm clean && pnpm build:lib && tsc -p cli/tsconfig.build.json && pnpm build:png-types",
+    "build:png-types": "tsc -p cli/tsconfig.png.json && node -e \"for (const f of ['fonts', 'framed', 'png', 'png-child', 'state']) require('node:fs').rmSync('cli/dist/' + f + '.d.ts')\"",
     "prepack": "pnpm build",
     "check": "pnpm build:lib && tsc --noEmit",
     "check:tsrs": "tsrs --noEmit",

@@ -560,12 +560,14 @@ both listed when either is drawn. The command looks for the files once, when it 
 ## Without the PNG renderer
 
 The PNG is drawn by `@resvg/resvg-js`, an optional dependency of tsdraft that npm installs by
-default. It is the package's only dependency, and the library never loads it. It is missing
-after an install with `--omit=optional`, and on a machine it has no build for. Then:
+default. It is the package's only dependency, and `tsdraft`, the library, never loads it: only
+the command and `toPNG` from `tsdraft/png` do. It is missing after an install with
+`--omit=optional`, and on a machine it has no build for. Then:
 
 - `tsdraft render` still writes the SVG and prints the JSON, with `"png": null` in `outputs`
   and the reason in `outputs.pngError`. `ok` stays true and the exit code is the one the drawing
   earns, 0 or 2, because the drawing built. It also prints the reason to stderr.
+- `toPNG` rejects with a `PngUnavailable` whose message is the reason.
 - `tsdraft dev` prints the reason to stderr when it starts, still serves the page, the state
   and the SVG, gives the same `outputs`, and answers `/drawing.png` with 501 and the reason.
 
@@ -590,6 +592,8 @@ A fault in the renderer ends that process and not the command:
   the reason to stderr.
 - `tsdraft dev` answers `/drawing.png` for that picture with 500 and the reason, and draws the
   next picture in a new process.
+- `toPNG` from `tsdraft/png` draws in such a process too, and rejects with a `RendererCrashed`
+  for that picture. The next call draws in a new process.
 
 When the renderer's process cannot start at all, each picture has a `pngError` that says so,
 and the rest is the same.

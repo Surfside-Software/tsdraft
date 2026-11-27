@@ -129,6 +129,11 @@ for, `render` still writes the SVG and exits as above, and the JSON has `"png": 
 reason in `pngError`. `npm i -D @resvg/resvg-js` adds it. Each entry of `outputs.layouts` has
 a `pngError` of its own: a picture the renderer stops on has no PNG, and its SVG is there.
 
+A script draws the same PNG without the command: `toPNG(drawing, { width })` from
+`tsdraft/png` takes `toSVG`'s options too, such as `layout`, and gives the PNG's bytes. It
+rejects with a `PngUnavailable` without the renderer, and with a `RendererCrashed` for a
+picture the renderer stops on.
+
 A text is as long in the pictures as it plots, in every font, and in the PNG its capitals are
 as tall. So a text that fits its space in the PNG fits it on the plot, and one that runs past
 a line there runs past it on paper. Only the shapes of the letters may differ: the PNG sets an

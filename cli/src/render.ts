@@ -6,7 +6,8 @@ import { basename, extname, join, resolve } from "node:path";
 import { type Builder, projectRoot, round, toState } from "./build.ts";
 import { faces, pdfFonts, pngFonts } from "./fonts.ts";
 import { isString } from "./guards.ts";
-import { pngUnavailable, RendererCrashed, startRenderer, toPNG } from "./png.ts";
+import { RendererCrashed } from "./png-errors.ts";
+import { pngUnavailable, startRenderer, toPNG } from "./png.ts";
 import type { BuildError, BuildState, ChangesOutput, LayoutOutput, ViewOutput } from "./state.ts";
 
 export interface RenderOptions {

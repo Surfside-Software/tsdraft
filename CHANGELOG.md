@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `toPNG(drawing, options)` from `tsdraft/png` draws a PNG on Node without the command: the
+  bytes `tsdraft render` writes of the same picture, with the same fonts, from `toSVG`'s options
+  and a `width`. It draws in a process of its own that does not keep a script from ending, and
+  rejects with a `PngUnavailable` without the renderer, a `RendererCrashed` for a picture the
+  renderer stops on and a `PngTooLarge` for one too tall to draw at any width. The main entry,
+  `tsdraft`, still runs in a browser and loads no renderer.
 - `render` and `dev` take the reader of a DWG only from the project they run in or from
   `--reader`, never from the folder of the drawing: a drawing from elsewhere no longer chooses the
   code that reads it. A DWG whose project names no reader is not read, and says so.

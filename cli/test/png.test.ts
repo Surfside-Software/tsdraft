@@ -15,7 +15,8 @@ import {
   SHIPPED,
   type Face,
 } from "../src/fonts.ts";
-import { pngUnavailable, RendererCrashed, toPNG } from "../src/png.ts";
+import { RendererCrashed } from "../src/png-errors.ts";
+import { pngUnavailable, toPNG } from "../src/png.ts";
 import { decode, ink } from "./pixels.ts";
 
 /** A font's family and the height of its capitals, as a face of it has them. */
