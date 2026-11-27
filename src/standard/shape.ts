@@ -1036,8 +1036,13 @@ const entry = (path: string, key: string): string => `${path}[${JSON.stringify(k
  * as `https://cdn.jsdelivr.net/npm/tsdraft@0.5.6/standard.schema.json`.
  */
 function laterVersion(schema: unknown): string | undefined {
-  if (!isString(schema)) return undefined;
-  const named = /tsdraft@((\d+)\.(\d+)\.(\d+)[^/]*)\/standard\.schema\.json$/.exec(schema);
+  // A URL of the schema is short, and a version is digits with a short tag, which a message quotes.
+  if (!isString(schema) || schema.length > 256) return undefined;
+
+  const named =
+    /tsdraft@((\d{1,9})\.(\d{1,9})\.(\d{1,9})(?:[-+][0-9A-Za-z.-]{1,64})?)\/standard\.schema\.json$/.exec(
+      schema,
+    );
 
   if (!named) return undefined;
   const ours = VERSION.split(".").map(Number);

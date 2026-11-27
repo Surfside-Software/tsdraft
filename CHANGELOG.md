@@ -110,6 +110,21 @@
 - The edited read keeps a census's counts right when an erased entity is past where its list
   stops, and a census list at its limit when additions join it. A dimension of the additions in
   any kind is held to a file style's font as a linear one is.
+- `lint` judges a viewport's twist as written, so one such as 359.9999999, which a file holds as
+  a whole turn, is refused. A field nobody knows inside an object, such as a hatch's loop, is
+  reported as one at the top is, and the rest of the entity is still checked. A leader that takes
+  its block from a style with an error of its own gets no error for a missing note. A text style
+  or block of the wrong shape no longer makes every viewport "show none of the drawing". The
+  message for an unknown entity kind lists every kind.
+- Under a standard, `lint` holds a text that inserts within inserts scale to nothing to the least
+  height, and layouts that share one list pay for it, so the checks stop at their limit in place
+  of growing with each layout. A title block's text style is held against a role's `styleName`,
+  where one is given, rather than its id. A dimension style's `scaleNames` is spelled as its scales
+  are, so the case a key is written in no longer changes the standard's hash. A standard's
+  `$schema` names the later tsdraft it was written for only when it is a URL of the schema of
+  256 characters at most, with a version of digits and a short tag, and is read in a bounded time.
+- `inspectText` checks the cells of a table in an xref's model space, and passes over a text whose
+  value is no string, where it threw.
 
 - Agent feedback, off unless the user turns it on with `tsdraft feedback mode on`: `tsdraft feedback`
   and a `feedback` tool of `tsdraft mcp` let an agent report where tsdraft got in its way, as a kind

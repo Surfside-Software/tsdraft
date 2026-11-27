@@ -702,15 +702,19 @@ export function lintStandard(
     return false;
   };
 
-  /** Whether a list may be read: once free, and again for another block when paid for. */
+  /**
+   * Whether a list may be read: once free, and again for another block when paid for. `seen`
+   * holds the lists a check has read.
+   */
   const affordable = (
-    list: readonly (Entity | AttributeDefinition | string)[] | undefined,
+    list: readonly (Entity | AttributeDefinition | Viewport | string)[] | undefined,
     of: string,
+    seen = read,
   ): boolean => {
     if (!Array.isArray(list)) return true;
 
-    if (!read.has(list)) {
-      read.add(list);
+    if (!seen.has(list)) {
+      seen.add(list);
 
       return true;
     }
@@ -910,7 +914,20 @@ export function lintStandard(
       return [{ viewport: v, i, about, name: `viewport #${i} of layout ${shown(layout.name)}` }];
     });
 
+  /** The lists of viewports and of entities the checks of each layout's sheet have read. */
+  const sheetLists = new WeakSet<object>();
+
   for (const layout of layouts) {
+    const of = ` of layout ${shown(layout.name)}`;
+
+    // A list that layouts share is read again for each, and paid for.
+    if (
+      !affordable(layout.viewports, ` of viewports${of}`, sheetLists) ||
+      !affordable(layout.entities, of, sheetLists)
+    ) {
+      break;
+    }
+
     for (const { viewport, about, name } of viewportsOf(layout)) {
       if (!isNumber(viewport.ratio) || index.scalesByRatio.has(written(viewport.ratio))) {
         continue;
@@ -1109,7 +1126,8 @@ export function lintStandard(
       if (!field.box) continue;
       const definition = definitionsOf(definitionBlock).get(tag);
 
-      if (!definition) continue;
+      // The value is measured for each layout that places it.
+      if (!definition || !spend(1 + Math.floor(value.length / 32))) continue;
 
       const style =
         definition.style === undefined ? undefined : stylesByKey.get(layerKey(definition.style));
@@ -1401,6 +1419,9 @@ export function lintStandard(
           keep(drawn, walk.styled(drawn.style), placement, titleBlock);
         });
       } catch (thrown) {
+        // An entity that throws on a value another rule reports is skipped, and only that one.
+        if (thrown instanceof RangeError) return;
+
         if (thrown !== CAPPED) throw thrown;
         capped ??= `at ${label}`;
       }
@@ -1419,10 +1440,7 @@ export function lintStandard(
   const spaces = new Map<string, ReturnType<typeof modelSpace>>();
 
   const modelSpace = (frozenHere?: ReadonlySet<string>) => {
-    const space = guarded(() => lettered(drawing.entities, {}, frozenHere)) ?? {
-      texts: [],
-      dimensions: [],
-    };
+    const space = lettered(drawing.entities, {}, frozenHere);
 
     return {
       space,
@@ -1566,14 +1584,14 @@ export function lintStandard(
     });
 
     if (capped !== undefined) break;
-    const sheet = guarded(() => lettered(layout.entities, { layout: layout.name }));
+    const sheet = lettered(layout.entities, { layout: layout.name });
 
-    for (const text of sheet?.texts ?? []) {
+    for (const text of sheet.texts) {
       if (text.scale === undefined) checkHeight(text, text.height, `on ${name}`, ON_LAYOUT);
       else if (text.scale === null) checkHeight(text, text.height, `on ${name}`, LEADER_NOTE);
     }
 
-    for (const dimension of sheet?.dimensions ?? []) {
+    for (const dimension of sheet.dimensions) {
       if (!dimension.scale) continue;
       report(
         `${dimension.kind}-off-scale`,
@@ -1720,7 +1738,10 @@ function placedText(
       b * Math.cos(turn) + d * Math.sin(turn),
     );
 
-    height = (text.height * Math.abs(a * d - b * c)) / along;
+    // Inserts within inserts can scale past the range of doubles: a baseline that comes to 0
+    // plots no height at all, and one that comes to infinity one past any size.
+    const across = (text.height * Math.abs(a * d - b * c)) / along;
+    height = Number.isFinite(across) ? across : along === 0 ? 0 : Infinity;
   }
 
   return { height, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
@@ -2064,12 +2085,16 @@ function lettering(
   };
 }
 
-/** What `fn` gives, or undefined when it throws on a value another rule reports. */
-function guarded<T>(fn: () => T): T | undefined {
+/**
+ * What `fn` gives, or undefined when it throws a `RangeError`, as tsdraft does on a value another
+ * rule reports. Anything else it throws, a bug among them, is thrown on.
+ */
+export function guarded<T>(fn: () => T): T | undefined {
   try {
     return fn();
-  } catch {
-    return undefined;
+  } catch (thrown) {
+    if (thrown instanceof RangeError) return undefined;
+    throw thrown;
   }
 }
 

@@ -209,6 +209,20 @@ test("a layer with fields by discipline takes the drawing's discipline", () => {
     "standard",
     /^Layer "TEXT" has fields of its own in the discipline C of the standard, so a drawing that uses it names its discipline/,
   );
+
+  const none = defineStandard({
+    id: "acme",
+    version: "1",
+    extends: BUILT_IN_STANDARD,
+    sheetFiles: "sheet-per-file",
+    layers: { TEXT: { color: 7, byDiscipline: {} } },
+  });
+
+  refused(
+    () => createDrawing({ standard: none }).layer("TEXT"),
+    "standard",
+    /^Layer "TEXT" has fields of its own in byDiscipline of the standard, so a drawing/,
+  );
 });
 
 test("layer(name, draw) draws on the layer, with or without a standard", () => {

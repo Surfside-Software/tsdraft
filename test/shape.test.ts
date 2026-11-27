@@ -27,6 +27,39 @@ test("each share of the sweep has its test file", () => {
   assert.deepEqual(files.sort(), expected.sort());
 });
 
+test("a field nobody knows inside an object is reported, and the rest of the entity still read", () => {
+  const hatch = {
+    kind: "hatch",
+    layer: "0",
+    loops: [
+      {
+        points: [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+        foo: 1,
+      },
+    ],
+  };
+
+  const drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [{ ...hatch, color: 999 }],
+  };
+
+  assert.deepEqual(
+    lint(wrong(drawing)).map((d) => [d.rule, d.item]),
+    [
+      ["format", undefined],
+      ["entity-color", undefined],
+    ],
+  );
+});
+
 test("a value of the wrong shape is reported in these words, once", () => {
   const cases: [path: Path, value: Swept, expected: string[]][] = [
     [["units"], 1n, ["units: Unknown units: a value of type bigint"]],

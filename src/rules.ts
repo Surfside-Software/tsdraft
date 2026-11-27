@@ -4587,8 +4587,8 @@ export function viewportProblem(
   const { corner, width, height, center, ratio, frozenLayers, twist }: ViewportFields = viewport;
 
   if (twist !== undefined) {
-    // The DXF holds degrees and the DWG radians, which part past a turn.
-    if (!isNumber(twist) || !(Math.abs(twist) < 360)) {
+    // The DXF holds degrees and the DWG radians, which part past a turn. It is judged as written.
+    if (!isNumber(twist) || !(Math.abs(written(twist)) < 360)) {
       return "its twist must be a number of degrees more than -360 and less than 360";
     }
   }

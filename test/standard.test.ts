@@ -28,6 +28,7 @@ import {
   versionSource,
 } from "../scripts/standard-files.ts";
 import { standardSchema } from "../src/standard/shape.ts";
+import { within } from "./time-limit.ts";
 import { fieldOf, isData, type Data, type Field } from "./values.ts";
 
 const base = { id: "t", version: "1", extends: BUILT_IN_STANDARD } as const;
@@ -522,6 +523,18 @@ test("a standard reads only its own fields, and drops what is for people", () =>
     `layers["A"].hue: "hue" is not a field of a layer in tsdraft ${VERSION}. This standard was written for tsdraft 99.0.0: update tsdraft`,
   ]);
 
+  // A $schema that is no URL of the schema names no version, and is read in a bounded time.
+  for (const $schema of [
+    "tsdraft@1.1.1".repeat(20_000),
+    schemaUrl("99.0.0\u001b[2J"),
+    schemaUrl(`99.0.0-${"x".repeat(300)}`),
+  ]) {
+    assert.deepEqual(
+      within(500, () => problems({ ...later, $schema })),
+      [`layers["A"].hue: "hue" is not a field of a layer in tsdraft ${VERSION}`],
+    );
+  }
+
   const commented = defineStandard({
     ...base,
     $comment: "Question 1",
@@ -736,6 +749,26 @@ test("a title block's names are one definition each in a drawing", () => {
     problems({ ...base, titleBlocks: { t: { ...area, block: titled, blockName: "SHEET" } } })[0]!,
     /text style "Title" has the name of the text style of the role "title"/,
   );
+  // A role with a styleName has that text style, and no other.
+  const firm = { ...base, textRoles: { title: { font: "Arial", height: 0.2, styleName: "FIRM" } } };
+
+  assert.deepEqual(
+    problems({ ...firm, titleBlocks: { t: { ...area, block: titled, blockName: "SHEET" } } }),
+    [],
+  );
+
+  const firmTitled = fragment((d) => {
+    d.textStyle({ name: "Firm", font: "Arial" });
+    d.block("SHEET", {}, () => d.text([1, 1], "X", { height: 0.1, style: "Firm" }));
+  });
+
+  assert.match(
+    problems({
+      ...firm,
+      titleBlocks: { t: { ...area, block: firmTitled, blockName: "SHEET" } },
+    })[0]!,
+    /text style "Firm" has the name of the text style of the role "title"/,
+  );
   const xref = { ...area, xref: { name: "TITLE BLOCK", path: "tb.dwg" } };
   assert.match(
     problems({ ...base, titleBlocks: { t: xref } })[0]!,
@@ -868,6 +901,19 @@ test("the hash is what the merged document states for a check", () => {
     }).hash,
     hash,
   );
+
+  // A scale named in any case is the scale, as its id spells it.
+  const scaled = (scale: string) =>
+    defineStandard({
+      ...base,
+      scales: { "A-100": { label: "A100", ratio: 1234 } },
+      dimensionStyles: {
+        mine: { ...BUILT_IN_STANDARD.dimensionStyles.dims, scaleNames: { [scale]: "X" } },
+      },
+    });
+
+  assert.deepEqual(scaled("a-100").dimensionStyles.mine?.scaleNames, { "A-100": "X" });
+  assert.equal(scaled("a-100").hash, scaled("A-100").hash);
   // A rule, a discipline and a linetype's description change it.
   assert.notEqual(again({ color: 3 }), hash);
   assert.notEqual(again({ discipline: "G" }), hash);

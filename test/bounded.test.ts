@@ -2129,6 +2129,35 @@ test("a proxy is read as the data its traps give, with each trap called a bounde
   );
 });
 
+test("a layer whose name changes once its shape is checked is refused, and a trap that throws leaves nothing behind", () => {
+  let reads = 0;
+
+  const changing = {
+    get name() {
+      return reads++ === 0 ? "A" : 42;
+    },
+    color: 7,
+  };
+
+  assert.deepEqual(
+    lint({ ...sheet, layers: [...sheet.layers, wrong(changing)] }).map((d) => d.message),
+    [`layers[${sheet.layers.length}].name must be a string`],
+  );
+
+  // A field nobody knows, then a getter that throws: the next call reads a sound drawing as sound.
+  const trap = {
+    name: "B",
+    color: 7,
+    unknown: 1,
+    get off(): never {
+      throw new Error("trap");
+    },
+  };
+
+  assert.throws(() => lint({ ...sheet, layers: [...sheet.layers, wrong(trap)] }), /trap/);
+  assert.deepEqual(lint(sheet), []);
+});
+
 type Text = Extract<Entity, { kind: "text" }>;
 
 test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint never throws", () => {

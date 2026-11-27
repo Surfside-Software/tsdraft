@@ -77,29 +77,10 @@ type Checks<T, K extends keyof T> = { readonly [F in K]-?: Check };
 
 export const PLAIN_OBJECT = "must be a plain object, with no getter, setter or hidden field";
 
-const KINDS = [
-  "line",
-  "polyline",
-  "circle",
-  "point",
-  "arc",
-  "ellipse",
-  "spline",
-  "text",
-  "paragraph",
-  "insert",
-  "linear-dimension",
-  "aligned-dimension",
-  "leader",
-  "image",
-  "underlay",
-  "hatch",
-  "wipeout",
-] as const satisfies readonly Entity["kind"][];
-
-/** What is wrong with an entity whose kind tsdraft does not know. */
-function unknownKindProblem(kind: unknown): string {
-  return `unknown entity kind ${shown(kind)}. An entity's kind is ${KINDS.map(shown)
+/** What is wrong with an entity whose kind tsdraft does not know, given every kind it knows. */
+function unknownKindProblem(kind: unknown, kinds: readonly string[]): string {
+  return `unknown entity kind ${shown(kind)}. An entity's kind is ${kinds
+    .map(shown)
     .join(", ")
     .replace(/, ([^,]*)$/, " or $1")}`;
 }
@@ -355,18 +336,16 @@ const unasked: string[] = [];
 export function isSound(check: Check, value: unknown, unknownFields = true): boolean {
   asking = true;
 
+  // A check that throws, as a getter or a proxy may, leaves nothing for the next call.
   try {
     check(value, "", asked, unknownFields ? asked : unasked);
+
+    return asked.length === 0;
   } finally {
     asking = false;
+    asked.length = 0;
+    unasked.length = 0;
   }
-
-  if (unasked.length > 0) unasked.length = 0;
-
-  if (asked.length === 0) return true;
-  asked.length = 0;
-
-  return false;
 }
 
 const inside = (at: string, key: string): string => (asking ? "" : at ? `${at}.${key}` : key);
@@ -467,7 +446,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
   // `plainArrayProblem` has refused an empty slot already. Otherwise the first one ends the list.
   const list =
     (item: Check): Check =>
-    (value, at, problems) => {
+    (value, at, problems, extra) => {
       const problem = array(value, at);
 
       if (problem) problems.push(problem);
@@ -481,7 +460,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
             break;
           }
 
-          item(items[i], asking ? "" : `${at}[${i}]`, problems);
+          item(items[i], asking ? "" : `${at}[${i}]`, problems, extra);
         }
       }
     };
@@ -535,7 +514,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
             if (field === undefined) continue;
 
             if (isMust[key]) found++;
-            check(field, inside(at, key), problems);
+            check(field, inside(at, key), problems, extra);
           }
         }
 
@@ -571,11 +550,11 @@ function formChecks(all: boolean, typed = all): FormChecks {
   /** An object whose every field passes `item`, whatever its keys. */
   const map =
     (item: Check): Check =>
-    (value, at, problems) => {
+    (value, at, problems, extra) => {
       if (!object(value)) problems.push(`${at} ${PLAIN_OBJECT}`);
       else {
         for (const [key, field] of Object.entries(value)) {
-          item(field, `${at}[${JSON.stringify(key)}]`, problems);
+          item(field, `${at}[${JSON.stringify(key)}]`, problems, extra);
         }
       }
     };
@@ -906,6 +885,8 @@ function formChecks(all: boolean, typed = all): FormChecks {
     ),
   } satisfies Record<Entity["kind"], FieldsCheck>;
 
+  const kinds = Object.keys(ENTITIES);
+
   const isKind = (named: unknown): named is Entity["kind"] =>
     isString(named) && Object.hasOwn(ENTITIES, named);
 
@@ -921,7 +902,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
     if (isKind(named)) {
       ENTITIES[named](value, at, problems, extra);
     } else {
-      problems.push(asking ? "" : `${at}: ${unknownKindProblem(named)}`);
+      problems.push(asking ? "" : `${at}: ${unknownKindProblem(named, kinds)}`);
     }
   };
 

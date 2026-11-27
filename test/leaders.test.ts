@@ -173,6 +173,15 @@ test("lint finds what the builder refuses, in a drawing built by hand", () => {
     "leader-style",
     "undefined-leader-style",
   ]);
+  // A leader that takes its style's block is not held to a note when the style has an error.
+  const { text: _, ...blocked } = leader;
+  assert.deepEqual(
+    rules([blocked], {
+      blocks: [{ name: "TAG", entities: [] }],
+      leaderStyles: [{ ...style, block: "TAG", textStyle: "NONE" }],
+    }),
+    ["undefined-text-style"],
+  );
   // A block in place of the note whose polyline has a side with no point is reported, not read.
   const side = wrong<Entity>({ kind: "polyline", layer: "0", points: [null, [2, 0]], bulges: [1] });
   assert.deepEqual(
