@@ -642,7 +642,9 @@ test("a waiting process that died is not given the next program", async (t) => {
       assert.equal(spare.length, 1);
       process.kill(spare[0]!, "SIGKILL");
 
-      for (let i = 0; i < 50 && programPids(server.child.pid!).length > 0; i++) await settle(100);
+      // Gone from /proc once the server has reaped it, which is when it learns of the exit. Its
+      // command line goes earlier, when it is a zombie the server has not yet seen.
+      for (let i = 0; i < 50 && existsSync(`/proc/${spare[0]}`); i++) await settle(100);
       const after = await call(server, "execute", { code: "return 2;", timeout: 20_000 });
       assert.equal(textOf(after).value, 2);
     });
