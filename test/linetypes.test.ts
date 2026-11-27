@@ -11,6 +11,7 @@ import {
   type LinetypeDefinition,
 } from "../src/index.ts";
 import { MARK_GLYPH_NAME, MARKS_ORDER } from "../src/rules.ts";
+import { wrong } from "./values.ts";
 
 const WATER: LinetypeDefinition = {
   name: "WATER",
@@ -182,4 +183,44 @@ test("parseLinetypes reads a linetype file's texts and shapes, each after its le
   ] as const) {
     assert.throws(() => parseLinetypes(text), message);
   }
+});
+
+test("a picture skips a linetype that is no object with a name", () => {
+  const dashed = { name: "DASH", description: "", pattern: [1, -1] };
+
+  const drawing = (linetypes: NonNullable<Drawing["linetypes"]>): Drawing => ({
+    format: 0,
+    units: "mm",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    linetypes,
+    entities: [{ kind: "line", layer: "0", from: [0, 0], to: [20, 0], linetype: "DASH" }],
+  });
+
+  const odd = wrong<NonNullable<Drawing["linetypes"]>>([null, 5, {}, dashed]);
+
+  assert.equal(toSVG(drawing(odd)), toSVG(drawing([dashed])));
+});
+
+test("a dashed arc of no radius draws no NaN", () => {
+  const svg = toSVG({
+    format: 0,
+    units: "mm",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    linetypes: [{ name: "DASH", description: "", pattern: [1, -1] }],
+    entities: [
+      {
+        kind: "arc",
+        layer: "0",
+        center: [5, 5],
+        radius: 0,
+        startAngle: 0,
+        endAngle: 90,
+        linetype: "DASH",
+      },
+    ],
+  });
+
+  assert.doesNotMatch(svg, /NaN/);
 });

@@ -17,6 +17,7 @@ import { dimensionPicture, pictureTexts, type Dimension, isDimension } from "./d
 import {
   sweep,
   type DimensionStyle,
+  type Block,
   type Drawing,
   type Ellipse,
   type Entity,
@@ -80,7 +81,7 @@ import {
   type PolylineSide,
   type SideArc,
 } from "./polylines.ts";
-import { boxer, type Boxer } from "./extents.ts";
+import { boxer, byName, type Boxer } from "./extents.ts";
 import { exactKey, imageCorners, imageDrawable, imageFrame, writtenImagePath } from "./images.ts";
 import {
   MISSING_HEIGHT,
@@ -979,19 +980,30 @@ export function svgWithin(
    */
   const pictures = new WeakMap<
     Leader,
-    { style: LeaderStyle; textStyle: TextStyle | undefined; picture: LeaderPicture }
+    {
+      style: LeaderStyle;
+      textStyle: TextStyle | undefined;
+      blocks: ReadonlyMap<string, Block>;
+      picture: LeaderPicture;
+    }
   >();
 
+  /** A leader's picture, its blocks found in the drawing it is in, `from` or this one. */
   const pictureOf = (
     e: Leader,
     style: LeaderStyle,
     textStyle: TextStyle | undefined,
+    from: Referenced | undefined,
   ): LeaderPicture => {
     const known = pictures.get(e);
+    const inner = from?.blocks ?? blocks;
 
-    if (known?.style === style && known.textStyle === textStyle) return known.picture;
-    const picture = leaderPicture(e, style, textStyle, (name) => blocks.get(key(name)));
-    pictures.set(e, { style, textStyle, picture });
+    if (known?.style === style && known.textStyle === textStyle && known.blocks === inner) {
+      return known.picture;
+    }
+
+    const picture = leaderPicture(e, style, textStyle, (name) => inner.get(key(name)));
+    pictures.set(e, { style, textStyle, blocks: inner, picture });
 
     return picture;
   };
@@ -1560,7 +1572,7 @@ export function svgWithin(
       const style = tables.leaderStyles.get(key(e.style));
       const named = e.textStyle ?? style?.textStyle;
       const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
-      const picture = style === undefined ? undefined : pictureOf(e, style, textStyle);
+      const picture = style === undefined ? undefined : pictureOf(e, style, textStyle, from);
       const layOut = () => paragraphs.layout(paragraphInStyle(picture!.note, textStyle));
 
       return leaderToSvg(e, picture, layOut, mark, drawnPen, look, matrix, room, sides);
@@ -1924,14 +1936,14 @@ export function svgWithin(
       });
 
   /** The insert of the block in place of a leader's note, where its picture places it. */
-  const contentOf = (e: Leader): Insert | undefined => {
-    const tables = tablesOf(undefined);
+  const contentOf = (e: Leader, from?: Referenced): Insert | undefined => {
+    const tables = tablesOf(from);
     const style = tables.leaderStyles.get(key(e.style));
 
     if (style === undefined || leaderBlock(e, style) === undefined) return undefined;
     const named = e.textStyle ?? style.textStyle;
     const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
-    const block = pictureOf(e, style, textStyle).block;
+    const block = pictureOf(e, style, textStyle, from).block;
 
     // The multileader holds its block ByBlock, so what the block sets ByBlock takes the leader's
     // color. CAD programs draw the block opaque whatever the leader's transparency.
@@ -1967,19 +1979,25 @@ export function svgWithin(
     const out: string[] = [];
 
     let open:
-      | { source: ReadSource; parts: string[]; uses: Set<string>; nested?: PictureRun }
+      | {
+          source: ReadSource;
+          parts: string[];
+          uses: Set<string>;
+          nested?: PictureRun;
+          /** What the xrefs among its parts use, which a fragment of plain text must list. */
+          inner: Set<string>;
+        }
       | undefined;
 
     const close = (): void => {
       if (open === undefined) return;
-      const { source, parts, uses, nested: within } = open;
+      const { source, parts, uses, nested: within, inner } = open;
+      const kept = within !== undefined && parts.length === 1;
       run.fragments.push({
         index: source.index,
         ...(source.handle !== undefined && { handle: source.handle }),
-        ...(within !== undefined && parts.length === 1
-          ? { run: within }
-          : { svg: parts.join(`\n${look.indent}`) }),
-        defs: [...uses],
+        ...(kept ? { run: within } : { svg: parts.join(`\n${look.indent}`) }),
+        defs: kept ? [...uses] : [...new Set([...uses, ...inner])],
       });
     };
 
@@ -1990,7 +2008,7 @@ export function svgWithin(
 
       if (open?.source !== source) {
         close();
-        open = { source, parts: [], uses: new Set() };
+        open = { source, parts: [], uses: new Set(), inner: new Set() };
         const name = scopeName(source, scoped);
         scope = `${run.viewport === undefined ? "" : `v${run.viewport}-`}${name}-`;
         [gradients, clips, using] = [0, 0, open.uses];
@@ -1999,7 +2017,14 @@ export function svgWithin(
       const element = draw(item);
       open!.parts.push(element);
 
-      if (nested !== undefined) [open!.nested, nested] = [nested, undefined];
+      if (nested !== undefined) {
+        for (const fragment of nested.fragments) {
+          for (const id of fragment.defs) open!.inner.add(id);
+        }
+
+        [open!.nested, nested] = [nested, undefined];
+      }
+
       out.push(element);
     }
 
@@ -2115,10 +2140,23 @@ export function svgWithin(
         xrefs,
         (cost) => length <= longest && spend(cost),
         key,
-        // A referenced drawing's table draws the block of each of its cells, as one of this
-        // drawing's does, each insert paid for before it is made.
+        // A referenced drawing's table draws the block of each of its cells, and its leader the
+        // block in place of its note, as one of this drawing's does, each insert paid for
+        // before it is made.
         (held, at) => {
-          if (held.kind !== "table" || hidden(at.layer) || frozenHere?.(at.layer)) return [];
+          if (hidden(at.layer) || frozenHere?.(at.layer)) return [];
+
+          if (held.kind === "leader") {
+            const content = contentOf(held, at.from);
+
+            if (content === undefined) return [];
+
+            if (!spend(1)) refuse(where());
+
+            return [content];
+          }
+
+          if (held.kind !== "table") return [];
           const picture = tablePictureOf(held, at.from);
 
           if (picture === undefined || picture.blocks.length === 0) return [];
@@ -2746,17 +2784,12 @@ function tablesFor(drawing: Drawing): Tables {
   }
 
   return {
-    layers: new Map(filled(drawing.layers).map((l) => [layerKey(l.name), l])),
-    patterns: new Map(filled(drawing.linetypes).map((t) => [layerKey(t.name), linePattern(t)])),
-    textStyles: new Map(filled(drawing.textStyles).map((t) => [layerKey(t.name), t])),
-    dimensionStyles: new Map(filled(drawing.dimensionStyles).map((t) => [layerKey(t.name), t])),
-    leaderStyles: new Map(filled(drawing.leaderStyles).map((t) => [layerKey(t.name), t])),
-    // A style that is no object with a name, which `lint` refuses, is one the drawing lacks.
-    tableStyles: new Map(
-      filled(drawing.tableStyles).flatMap((t) =>
-        isString(t?.name) ? [[layerKey(t.name), t] as const] : [],
-      ),
-    ),
+    layers: byName(drawing.layers),
+    patterns: new Map([...byName(drawing.linetypes)].map(([key, t]) => [key, linePattern(t)])),
+    textStyles: byName(drawing.textStyles),
+    dimensionStyles: byName(drawing.dimensionStyles),
+    leaderStyles: byName(drawing.leaderStyles),
+    tableStyles: byName(drawing.tableStyles),
     hatchPatterns,
   };
 }
@@ -3796,8 +3829,9 @@ function textToSvg(
   // Undo the group's Y flip so the text reads upright, then apply CAD rotation.
   let t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
 
-  // An insert's matrix is applied last, so it comes first.
-  if (matrix) t = `matrix(${matrix.map(fmt).join(" ")}) ${t}`;
+  // An insert's matrix is applied last, so it comes first. Its scale and turn multiply the
+  // text's own coordinates, so they keep the digits a point mapped through them would.
+  if (matrix) t = `matrix(${matrix.map((v, i) => (i < 4 ? precise(v) : fmt(v))).join(" ")}) ${t}`;
   const named = style?.font ?? STANDARD_FONT;
   const font = fontInfo(named);
   const width = style?.widthFactor ?? 1;
@@ -4119,7 +4153,8 @@ function dashedPath(
     const way = turn < 0 ? -1 : 1;
 
     const along = (t: number) => {
-      const angle = rad(start) + (way * t) / radius;
+      // An arc of no radius is its center wherever along it.
+      const angle = rad(start) + (radius > 0 ? (way * t) / radius : 0);
 
       return place(center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle));
     };
@@ -4967,7 +5002,11 @@ function polylineToSvg(
 
   if (parts.length === 0) return `<g ${mark}/>`;
 
-  if (parts.length === 1) return parts[0]!.replace(/\/>$/, ` ${mark}/>`);
+  if (parts.length === 1) {
+    const only = parts[0]!;
+
+    return only.endsWith("/>") ? `${only.slice(0, -2)} ${mark}/>` : only;
+  }
 
   return `<g ${mark}>\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }

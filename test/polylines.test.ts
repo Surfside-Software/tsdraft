@@ -729,3 +729,30 @@ test("a side of a polyline too fine for its pattern as an uneven insert draws it
   // The long side, 1,920 long as drawn and too fine to dash, is filled whole beside the short one.s dashes.
   assert.ok(/<path d="M 0 0\.5 L 1920 0\.5 L 1920 -0\.5 L 0 -0\.5"/.test(toSVG(drawing)));
 });
+
+test("a polyline of arcs keeps a layer name with dollar signs", () => {
+  const svg = toSVG({
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [
+      { name: "0", color: 7 },
+      { name: "A$$B", color: 1 },
+    ],
+    entities: [
+      {
+        kind: "polyline",
+        layer: "A$$B",
+        points: [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+        bulges: [0.5, 0],
+        closed: false,
+      },
+    ],
+  });
+
+  assert.match(svg, /<path [^>]* data-layer="A\$\$B"/);
+});

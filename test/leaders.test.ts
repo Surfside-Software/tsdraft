@@ -503,3 +503,22 @@ test("a leader style at a height other than its role's is reported once, not for
     ["leader-style-differs-from-standard"],
   );
 });
+
+test("a leader in a referenced drawing draws the block in place of its note", () => {
+  const source = createDrawing();
+  source.leaderStyle({ name: "NOTES", ...STYLE });
+  source.block("TAG", {}, () => source.circle([0, 0], 2));
+  source.leader({ block: "TAG" }, { style: "NOTES", at: [10, 10], to: [0, 0] });
+  const host = createDrawing();
+  host.xref("BASE", "base.dwg");
+  host.insert("BASE", [0, 0]);
+  const view = [-20, -20, 40, 40] as const;
+
+  const circles = (svg: string) =>
+    svg.match(/<circle [^>]*/g)?.map((c) => c.replace(/ data-.*/, ""));
+
+  const alone = circles(toSVG(source.build(), { view }));
+  assert.equal(alone?.length, 1);
+
+  assert.deepEqual(circles(toSVG(host.build(), { xrefs: { BASE: source.build() }, view })), alone);
+});

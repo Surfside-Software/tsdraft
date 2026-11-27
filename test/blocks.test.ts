@@ -519,7 +519,7 @@ test("SVG draws an insert's block where the insert puts it, on the layers the le
   assert.match(first!, /rotate\(-15\) translate\(-0.590041 0.25\) skewX\(-10\)[^>]*>OAK<\/text>/);
   // An uneven scale makes an ellipse of the circle, turned with the insert.
   assert.match(second!, /<ellipse cx="30" cy="10" rx="6" ry="1.5" transform="rotate\(30 30 10\)"/);
-  assert.match(second!, /<text transform="matrix\(1.732051 1 -0.25 0.433013 30 10\) /);
+  assert.match(second!, /<text transform="matrix\(1.73205080757 1 -0.25 0.433012701892 30 10\) /);
   // The extents take in what each insert draws.
   const [minX, minY, maxX, maxY] = extents(drawing.entities, drawing.textStyles, drawing.blocks);
   assert.ok(minX < 7.01 && minY < 6.5 && maxX > 36.9 && maxY > 53.4, `${[minX, minY, maxX, maxY]}`);
@@ -628,4 +628,29 @@ test("an attribute of paragraph text of the wrong shape is drawn as none, and un
     inspectWithin({ ...built, entities }, {}, 400_000).some((w) => w.rule === "text-check-capped");
 
   assert.deepEqual([checked(scales), checked(one)], [true, false]);
+});
+
+test("a text in a block scaled far down stays where its block's lines put it", () => {
+  const d = createDrawing({ units: "ft" });
+  d.block("FAR", {}, () => {
+    d.line([100_000, 0], [100_001, 0]);
+    d.text([100_000, 0], "A", { height: 2.5 });
+  });
+
+  d.insert("FAR", [0, 0], { scale: [1 / 304.8, 1 / 304.8] });
+  const svg = toSVG(d.build());
+  const x1 = Number(/<line x1="([^"]+)"/.exec(svg)![1]);
+
+  const [a, , , , e] = /matrix\(([^)]+)\) translate\(100000 0\)/
+    .exec(svg)![1]!
+    .split(" ")
+    .map(Number);
+
+  assert.ok(Math.abs(a! * 100_000 + e! - x1) < 1e-5, `${a! * 100_000 + e!} and ${x1}`);
+});
+
+test("an entity with a NaN leaves the others' extents as they are", () => {
+  const line: Entity = { kind: "line", layer: "0", from: [0, 0], to: [10, 5] };
+  const bad: Entity = { kind: "line", layer: "0", from: [Number.NaN, 0], to: [1, 1] };
+  assert.deepEqual(extents([line, bad]), extents([line]));
 });

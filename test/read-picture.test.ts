@@ -516,3 +516,38 @@ test("an xref draws its own images, given beside its read", () => {
   assert.doesNotMatch(without, /data:image\/png/);
   assert.match(withImages, /data:image\/png/);
 });
+
+test("an xref insert drawn with its attributes keeps the definitions the xref uses", async () => {
+  const d = createDrawing({ units: "ft" });
+
+  const square: Point[] = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+  ];
+
+  const colors = [
+    [255, 0, 0],
+    [0, 0, 255],
+  ] as const;
+
+  d.hatch([{ points: square }], { gradient: { name: "linear", colors } });
+  const base = await readDXF(toDXF(d.build()), { geometry: true });
+  const h = createDrawing({ units: "ft" });
+  h.block("TAGGED", {}, () => h.attribute("TAG", [0, 0], { value: "T", height: 1 }));
+  h.insert("TAGGED", [0, 0], { attributes: { TAG: "X-1" } });
+  const tagged = await readDXF(toDXF(h.build()), { geometry: true });
+  const { blockHandle: _, ...insert } = tagged.model.entities!.find((e) => e.kind === "insert")!;
+
+  const host: DrawingRead = {
+    ...tagged,
+    xrefs: [{ name: "BASE", path: "base.dwg", overlay: true }],
+    model: { ...tagged.model, entities: [{ ...insert, block: "BASE" }] },
+  };
+
+  const { svg } = readPicture(host, { xrefs: { BASE: base } });
+  const used = [...svg.matchAll(/url\(#([^)]+)\)/g)].map((m) => m[1]);
+  assert.equal(used.length, 1);
+  assert.ok(used.every((id) => svg.includes(` id="${id}"`)));
+});

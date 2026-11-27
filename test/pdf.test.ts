@@ -84,6 +84,9 @@ test("svgToPDF refuses what toSVG does not draw of a layout", () => {
     `${sheet}</g>`,
     sheet.replace(/<\/g>\n<\/svg>/, "</svg>\n</svg>"),
     sheet.replace(/<clipPath id="([^"]+)">/, '<clipPath id="$1" transform="rotate(5)">'),
+    sheet.replace(/<line x1="[^"]*"/, '<line x1=""'),
+    sheet.replace(/<line x1="[^"]*"/, '<line x1="0x10"'),
+    sheet.replace(/ stroke-width="[^"]*"/, ' stroke-width="-1"'),
   ]) {
     assert.throws(() => svgToPDF([changed]), RangeError);
   }
@@ -132,6 +135,7 @@ test("a gradient is a shading painted inside its loops, and a gradient toSVG doe
 
   for (const changed of [
     sheet.replace('spreadMethod="pad"', 'spreadMethod="reflect"'),
+    sheet.replace(' spreadMethod="pad"', ""),
     sheet.replace('<stop offset="0"', '<stop offset="0.1"'),
     sheet.replace('fill-rule="evenodd" stroke="none"', 'fill-rule="evenodd" stroke="#000000"'),
     sheet.replace(/ gradientTransform="[^"]*"/, ""),

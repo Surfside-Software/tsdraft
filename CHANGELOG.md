@@ -44,6 +44,25 @@
   edge of a degree over 11, as drawing nothing, and gives a viewport an id only from a
   hexadecimal handle. `checkDrawingRead` names an entity's kind such as `constructor` as no
   entity's kind.
+- `toDXF` writes `$HANDSEED` above every handle in a drawing whose only named objects are its
+  table styles, so a CAD program that adds objects to the file numbers none of them as a handle
+  the file already holds.
+- `toSVG` draws the block a leader holds in place of its note when the leader is in a drawing
+  given for an xref, and finds that block among the referenced drawing's blocks.
+- `toSVG` places a text inside a scaled or turned insert where the insert's lines put it, to the
+  digits a point is written with. A block in millimetres inserted into a drawing in feet moved a
+  text far from the block's origin by as much as twice its height.
+- `toSVG` keeps a layer name that holds `$$`, `$&` or `$'` as it is on a polyline with arcs or
+  widths, which it wrote changed.
+- `toSVG` skips a layer, linetype or style that is not an object with a name, which threw a
+  `TypeError`. A dashed arc of radius 0 draws no `NaN`, and a `NaN` in one entity no longer makes
+  the whole picture's `viewBox` `NaN`.
+- The picture of a read file keeps the gradients and clips an xref uses when its insert also
+  holds attributes.
+- `svgToPDF` refuses an empty number, a hexadecimal one and a negative `stroke-width`, and a
+  gradient without every attribute `toSVG` writes, where it drew them as 0, 16 or a default.
+- `lint` and `toSVG` count the work of boxing the blocks of tables in referenced drawings against
+  their limits, which each such drawing had multiplied.
 - Agent feedback, off unless the user turns it on with `tsdraft feedback mode on`: `tsdraft feedback`
   and a `feedback` tool of `tsdraft mcp` let an agent report where tsdraft got in its way, as a kind
   and a subject from lists, with three short texts in its own words. Only the report's id, kind,

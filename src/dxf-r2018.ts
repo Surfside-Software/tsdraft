@@ -1294,6 +1294,7 @@ export function toDXFR2018(
     sheets.length > 0 ||
     dimensionStyles.length > 0 ||
     leaderStyles.length > 0 ||
+    tableStyles.length > 0 ||
     images.length > 0 ||
     underlays.length > 0 ||
     wipeoutCount(drawing) > 0 ||

@@ -237,6 +237,11 @@ function num(value: number): string {
   return real(value, 3);
 }
 
+/** A number as `toSVG` writes one, in decimals with an exponent at most; NaN for any other text. */
+function numeral(text: string): number {
+  return /^-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/.test(text) ? Number(text) : NaN;
+}
+
 /** A transform list as SVG writes it, as one matrix. */
 function transformOf(list: string, where: string): Matrix {
   let m = IDENTITY;
@@ -256,7 +261,7 @@ function transformOf(list: string, where: string): Matrix {
       match[2]!
         .trim()
         .split(/[\s,]+/)
-        .map(Number),
+        .map(numeral),
     ];
 
     if (!args.every(Number.isFinite)) throw refuse(`the transform ${match[0].trim()}`, where);
@@ -1008,7 +1013,7 @@ function pathPieces(d: string, where: string, scale: number): Piece[] {
   let i = 0;
 
   const numbers = (count: number): number[] => {
-    const out = tokens.slice(i, i + count).map(Number);
+    const out = tokens.slice(i, i + count).map(numeral);
 
     if (out.length !== count || !out.every(Number.isFinite)) throw refuse(`the path ${d}`, where);
     i += count;
@@ -1053,7 +1058,7 @@ function pointsOf(value: string, where: string): [number, number][] {
       : value
           .trim()
           .split(/[\s,]+/)
-          .map(Number);
+          .map(numeral);
 
   if (numbers.length % 2 !== 0 || !numbers.every(Number.isFinite)) {
     throw refuse(`the points ${JSON.stringify(value)}`, where);
@@ -1728,9 +1733,9 @@ class PdfWriter {
       }
 
       const number = (name: string): number => {
-        const value = Number(element[name]);
+        const value = numeral(element[name] ?? "");
 
-        if (element[name] === undefined || !Number.isFinite(value)) {
+        if (!Number.isFinite(value)) {
           throw refuse(`the ${name} ${JSON.stringify(element[name])}`, where(tag));
         }
 
@@ -1738,7 +1743,7 @@ class PdfWriter {
       };
 
       if (tag === "svg") {
-        const box = (element.viewBox ?? "").trim().split(/\s+/).map(Number);
+        const box = (element.viewBox ?? "").trim().split(/\s+/).map(numeral);
 
         const info =
           element["data-paper"] === undefined ? undefined : paperInfo(element["data-paper"]);
@@ -1850,7 +1855,7 @@ class PdfWriter {
           !/^matrix\([^()]*\)$/.test(transform) ||
           gradients.has(element.id) ||
           extra !== undefined ||
-          Object.keys(expected).some((name) => element[name] === undefined)
+          [...expected.keys()].some((name) => element[name] === undefined)
         ) {
           throw refuse("a gradient that is not one of gradientPicture's", where(tag));
         }
@@ -1939,6 +1944,8 @@ class PdfWriter {
 
       const width =
         element["stroke-width"] === undefined ? parent.strokeWidth : number("stroke-width");
+
+      if (width < 0) throw refuse(`the stroke-width ${element["stroke-width"]}`, where(tag));
 
       const inherited: Inherited = {
         matrix,
@@ -2300,7 +2307,7 @@ class PdfWriter {
 
     if (fill === undefined) return undefined;
     const font = element["data-font"];
-    const height = Number(element["data-height"]);
+    const height = numeral(element["data-height"] ?? "");
 
     if (font === undefined || !(height > 0) || !Number.isFinite(height)) {
       throw refuse(
@@ -2360,7 +2367,7 @@ class PdfWriter {
       fonts.set(used, (key = `F${embedded ? embedded.object : this.faceObject(face)}`));
     }
 
-    const held = Number(element.textLength);
+    const held = numeral(element.textLength ?? "");
 
     const stretch =
       element.textLength !== undefined && held > 0 && natural > 0 ? (held / natural) * 100 : 100;

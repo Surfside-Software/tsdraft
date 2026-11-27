@@ -17,6 +17,7 @@ import { extents } from "../src/extents.ts";
 import { TABLE_COLOR } from "../src/rules.ts";
 import { tableCost, tableRepeats } from "../src/tables.ts";
 import { within } from "./time-limit.ts";
+import { pairs } from "./dxf-groups.ts";
 import { dataOf, wrong } from "./values.ts";
 
 const boxOf = (d: Drawing, xrefs?: Parameters<typeof referencedByKey>[1]) =>
@@ -251,4 +252,52 @@ test("a table takes no color of its own, from the builder or from lint", () => {
     lint(colored).map((p) => [p.rule, p.message]),
     [["entity-color", `table #0: ${TABLE_COLOR}`]],
   );
+});
+
+test("a drawing whose only named handles are its table styles has $HANDSEED above them", () => {
+  const d = createDrawing({ units: "in" });
+  d.tableStyle({ name: "S", textHeight: 1 });
+  d.line([0, 0], [1, 1]);
+  const p = pairs(toDXF(d.build()));
+  const seed = BigInt(`0x${p[p.findIndex(([c, v]) => c === 9 && v === "$HANDSEED") + 1]![1]}`);
+
+  const handles = p
+    .slice(p.findIndex(([c, v]) => c === 0 && v === "ENDSEC"))
+    .filter(([c]) => c === 5 || c === 105);
+
+  assert.ok(handles.every(([, v]) => BigInt(`0x${v}`) < seed));
+});
+
+test("the boxes of tables' blocks in referenced drawings count against one limit", () => {
+  const source = (): Drawing => {
+    const d = createDrawing({ units: "in" });
+    d.block("C", {}, () => {
+      for (let i = 0; i < 100; i++) d.attribute(`A${i}`, [0, i], { value: "v", height: 1 });
+    });
+    d.block("TAG", {}, () => {
+      for (let i = 0; i < 10; i++) d.insert("C", [i, 0]);
+    });
+    d.tableStyle({ name: "S", textHeight: 1 });
+    d.table({ style: "S", at: [0, 0], columns: [4], rows: [[{ block: "TAG" }]] });
+
+    return d.build();
+  };
+
+  const host = createDrawing({ units: "in" });
+  const xrefs: Record<string, Drawing> = {};
+
+  for (const name of ["A", "B", "C", "D"]) {
+    host.xref(name, `${name}.dwg`);
+    host.insert(name, [0, 0]);
+    xrefs[name] = source();
+  }
+
+  const d = host.build();
+
+  const box = (most: number) =>
+    extents(d.entities, [], [], undefined, undefined, referencedByKey(d, xrefs), [], [], most);
+  // Each table's block costs some 360 units, under the limit alone and over it together.
+
+  assert.throws(() => box(1000), RangeError);
+  assert.ok(box(2000));
 });
