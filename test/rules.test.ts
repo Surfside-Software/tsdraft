@@ -17,6 +17,7 @@ import {
   toJSON,
   toSVG,
   viewportView,
+  DASHDOT,
   type Drawing,
   type Entity,
   type HatchGradient,
@@ -657,7 +658,8 @@ test("linetype, lineweight and layer state mistakes are compile errors and runti
 
   d.linetype({ name: "Fence", pattern: [1, -0.5, 0, -0.5] });
   d.linetype({ name: "SOLID2", pattern: [] });
-  d.layer("0", { off: true, locked: true, plot: false, linetype: "fence", lineweight: 0.3 });
+  const fence: string = "fence";
+  d.layer("0", { off: true, locked: true, plot: false, linetype: fence, lineweight: 0.3 });
   d.layer("B", { linetype: HIDDEN, lineweight: 2.11 }, () => {
     d.line([0, 0], [1, 1], { linetype: "ByBlock", lineweight: "Default" });
     d.text([0, 0], "x", { linetype: DASHED, lineweight: 0 });
@@ -882,7 +884,8 @@ test("linetype mistakes the compiler cannot see are checked when the code runs",
   d.linetype({ name: "ΟΔΟΣ", pattern: [1, -1] });
   // A final sigma is no capital sigma to the leading CAD app, but its AUDIT calls the two one name.
   assert.throws(() => d.linetype({ name: "οδος", pattern: [1, -1] }), /AUDIT reports them as one/);
-  assert.throws(() => d.line([0, 0], [1, 1], { linetype: "οδος" }), /not defined/);
+  const twin: string = "οδος";
+  assert.throws(() => d.line([0, 0], [1, 1], { linetype: twin }), /not defined/);
   // The total of the lengths is written too, and the compiler cannot add.
   assert.throws(() => d.linetype({ name: "T", pattern: [9e99, -9e99] }), /added up/);
   // AUDIT reports a twin of a built-in linetype as a duplicate.
@@ -901,6 +904,48 @@ test("linetype mistakes the compiler cannot see are checked when the code runs",
     () => d.layer("A", { linetype: { ...fence, description: "x" } }),
     /another pattern or description/,
   );
+});
+
+test("a literal linetype name is one every drawing has or one of the library's, which it defines", () => {
+  const d = createDrawing({ units: "ft" });
+  d.layer("A", { linetype: "HIDDEN" }, () => d.line([0, 0], [1, 1], { linetype: "dashdot" }));
+  const { linetypes, layers, entities } = d.build();
+  assert.deepEqual(linetypes, [HIDDEN, DASHDOT]);
+  assert.equal(layers.find((l) => l.name === "A")?.linetype, "HIDDEN");
+  assert.equal(entities[0]?.kind === "line" && entities[0].linetype, "DASHDOT");
+  assert.match(toDXF(d.build()), /\r\n2\r\nHIDDEN\r\n70\r\n0\r\n3\r\nHidden __/);
+
+  const fence = { name: "FENCE", pattern: [1, -0.5] };
+  assert.throws(
+    // @ts-expect-error: the types cannot know which linetypes a drawing has defined.
+    () => d.layer("B", { linetype: "NOPE" }),
+    /"NOPE" is not defined.*Pass its definition, such as linetype: FENCE, or define it/,
+  );
+  // @ts-expect-error: nor on an entity.
+  assert.throws(() => d.line([0, 0], [1, 1], { linetype: "FENCE" }), /"FENCE" is not defined/);
+  d.layer("B", { linetype: fence }, () => d.line([0, 0], [1, 1], { linetype: fence }));
+  const named: string = "fence";
+  d.line([0, 0], [1, 1], { linetype: named });
+
+  // A badly formed name keeps the message of its form.
+  // @ts-expect-error: a comma is refused in any linetype name.
+  assert.throws(() => d.line([0, 0], [1, 1], { linetype: "A,B" }), /cannot contain/);
+
+  // Each name of a union is checked alone: one of them breaking a rule is a compile error.
+  const either = (flag: boolean) => (flag ? "TYPO" : "A,B");
+  // @ts-expect-error: neither is a linetype the drawing can have by name.
+  assert.throws(() => d.layer("C", { linetype: either(true) }), /"TYPO" is not defined/);
+  const mixed = (flag: boolean) => (flag ? "HIDDEN" : "TYPO");
+  // @ts-expect-error: "TYPO" is not, though "HIDDEN" is.
+  assert.throws(() => d.line([0, 0], [1, 1], { linetype: mixed(false) }), /"TYPO" is not defined/);
+
+  // And a union of names that each pass, passes.
+  const numbered = (flag: boolean, n: number): "HIDDEN" | `TSD-${number}` =>
+    flag ? "HIDDEN" : `TSD-${n}`;
+
+  d.linetype({ name: "TSD-1", pattern: [1, -1] }).line([0, 0], [1, 1], {
+    linetype: numbered(false, 1),
+  });
 });
 
 test("lint checks the linetypes, lineweights and layer states of a drawing", () => {

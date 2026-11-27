@@ -434,7 +434,6 @@ test("a radius that fits as written is taken, and a cloud that would cross its o
 
 test("a dashed wide arc too long for its pattern draws the whole polyline solid", () => {
   const d = createDrawing();
-  d.linetype({ name: "FINE", description: "", pattern: [0.05, -0.05] });
   d.polyline(
     [
       [0, 0],
@@ -442,7 +441,7 @@ test("a dashed wide arc too long for its pattern draws the whole polyline solid"
       [650, 0],
     ],
     false,
-    { bulges: [1, 0], width: 2, linetype: "FINE" },
+    { bulges: [1, 0], width: 2, linetype: { name: "FINE", pattern: [0.05, -0.05] } },
   );
   const svg = toSVG(d.build());
   // Two filled sides and no dash: the arc's outer edge holds more than 10,000 patterns.

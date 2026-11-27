@@ -101,8 +101,11 @@ it stopped, as [the preview of blocks](docs/blocks.md#the-preview) says.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 Linetypes and lineweights are set on a layer, and an entity draws ByLayer unless
 it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`
-are the leading CAD app's own definitions; `d.linetype({ name, pattern })` defines another,
-with dashes as positive lengths, gaps as negative ones and dots as 0. Its `marks` draw texts
+are the leading CAD app's own definitions, and a layer or an entity may name one, as
+`linetype: "HIDDEN"`, or pass it, as `linetype: HIDDEN`: either defines it on first use. A linetype
+of your own is a `{ name, pattern }` definition, with dashes as positive lengths, gaps as negative
+ones and dots as 0. Pass the definition, as `linetype: FENCE`: a literal name other than the
+library's and `Continuous`, `ByLayer` and `ByBlock` is a compile error. Its `marks` draw texts
 along the line, such as a water main's letters, and shapes of a firm's shape file, such as a
 fence's circles, which `parseShx` reads and the plot takes as `shx`. `parseLinetypes` reads
 a firm's linetype file. A polyline's `linetypeGeneration` runs the pattern on past its vertices. A

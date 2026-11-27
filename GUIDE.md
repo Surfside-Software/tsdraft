@@ -585,6 +585,11 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
   firm's linetype file, a linetype's `marks` draw its letters at each repeat of its pattern, and a
   polyline drawn with `linetypeGeneration: true` runs the pattern on past its vertices, so short
   runs between bends still get their letters. The letters' text style must be one of the drawing's.
+  Give a layer or an entity the linetype itself, `linetype: water`, not its name: a literal name
+  other than `Continuous`, `ByLayer`, `ByBlock` (an entity's only) and the library's `DASHED`,
+  `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT` is a compile error, except in an edit of a
+  firm's file, where a literal names the file's own linetypes, and a library name the file lacks
+  adds the library's definition.
 - A fence's circles or batt insulation's loops are shapes of the firm's shape file. Copy the file
   beside the drawing: the command reads it there, and `toSVG`, `toPDF` and `lint` take its bytes
   as `shx`. Without it the plot leaves a gap where each shape goes, and `lint` warns

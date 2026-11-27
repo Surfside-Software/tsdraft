@@ -65,7 +65,7 @@ import {
   type PaperInfo,
   type PlotStyleTable,
 } from "./papers.ts";
-import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
+import { BUILT_IN_LINETYPES, builtInLinetype, libraryLinetype } from "./linetypes.ts";
 import { arcsAlong, cloud, donut, MAX_CLOUD_ARCS, rounded } from "./polylines.ts";
 import {
   hatchSpread,
@@ -162,7 +162,7 @@ import {
   undefinedDimensionTextStyleProblem,
   undefinedLeaderStyleProblem,
   undefinedLeaderTextStyleProblem,
-  undefinedLinetypeProblem,
+  unknownLinetypeProblem,
   undefinedTextStyleProblem,
   viewportProblem,
   frozenLayerAbsent,
@@ -218,6 +218,8 @@ import {
   type ParagraphValue,
   type LineweightMm,
   type LineweightOf,
+  type KnownLinetype,
+  type FormedLinetypeName,
   type LinetypeName,
   type MeasurementScale,
   type NewDimensionStyleName,
@@ -1877,11 +1879,11 @@ const fileDefinitionsOf = new WeakMap<
 export function createDrawingInFile(
   options: { readonly units: Units; readonly standard?: Standard | undefined },
   file: FileDefinitions,
-): DrawingBuilder<"R2018", number, undefined> {
+): DrawingBuilder<"R2018", number, undefined, string, string> {
   const own: DrawingOptions<"R2018", number, undefined> = { units: options.units };
   fileDefinitionsOf.set(own, { file, standard: options.standard });
 
-  return new DrawingBuilder<"R2018", number, undefined>(own);
+  return new DrawingBuilder<"R2018", number, undefined, string, string>(own);
 }
 
 /** A standard's entry named `Standard`, which is a firm's file's own and no new drawing's. */
@@ -1930,20 +1932,31 @@ type CheckedDefinition<L> = L extends LinetypeDefinition
 type DescriptionOf<L> = L extends { readonly description: infer D extends string } ? D : string;
 
 /**
- * A linetype for a layer or an entity: the name `T` of one the drawing has, or a
- * `LinetypeDefinition`, which is checked as `linetype()` checks one and defined first if the
- * drawing does not have it yet.
+ * A linetype for a layer or an entity: a `LinetypeDefinition`, which is checked as `linetype()`
+ * checks one and defined first if the drawing does not have it yet, or the name `T` of a
+ * linetype every drawing has or of one of the library's, which the drawing defines on first use.
+ * A name only known when the code runs may be any linetype the drawing has. In an edit, where `X`
+ * is `string`, a literal may name any linetype of the file.
  *
  * `L` is the whole value given, a name or a definition, so the compiler infers it in one piece
  * even from a conditional that mixes the two. That is why this is one conditional type and not a
  * union: the compiler infers a union's members apart. The false branch is never taken: it is
  * there so the compiler infers `L`, and the tuple keeps `const L` from widening it.
  */
-export type LinetypeChoice<T extends string, L extends LinetypeValue = LinetypeDefinition> = [
-  L,
-] extends [LinetypeValue]
-  ? LinetypeName<T> | CheckedDefinition<L>
-  : L;
+export type LinetypeChoice<
+  T extends string,
+  L extends LinetypeValue = LinetypeDefinition,
+  X extends string = never,
+> = [L] extends [LinetypeValue] ? NamedLinetype<T, false, X> | CheckedDefinition<L> : L;
+
+/**
+ * A name as `KnownLinetype` holds it, or in an edit, where `X` is `string`, any name whose shape
+ * `FormedLinetypeName` finds well formed, each name of a union alone. An intersection keeps the
+ * builder of an edit assignable to a `DrawingBuilder`, where a conditional on `X` would not.
+ */
+type NamedLinetype<T extends string, Layer extends boolean, X extends string> =
+  | KnownLinetype<T, Layer>
+  | ((T extends unknown ? FormedLinetypeName<T, Layer> : never) & X);
 
 /**
  * A linetype on an R12 drawing, which can only be the built-in `Allowed`. Any other literal name,
@@ -1983,15 +1996,19 @@ export interface LayerOptions<
   V extends DxfVersion = "R2018",
   N extends string = string,
   L extends LinetypeValue = LinetypeDefinition,
+  X extends string = never,
 > {
   /** A number from 1 to 255 in the color index CAD programs share. */
   readonly color?: LayerColor<C>;
-  /** Defaults to `"Continuous"`. It cannot be ByLayer or ByBlock. R2018 only. */
+  /**
+   * Defaults to `"Continuous"`. It cannot be ByLayer or ByBlock. A name, as `LinetypeChoice`
+   * takes one, or a definition. R2018 only.
+   */
   readonly linetype?: V extends "R12"
     ? R12LinetypeChoice<T, L, "continuous", R12Linetypes>
     : // One conditional type, for the reason `LinetypeChoice` gives.
       [L] extends [LinetypeValue]
-      ? LayerLinetypeName<T> | CheckedDefinition<L>
+      ? NamedLinetype<T, true, X> | CheckedDefinition<L>
       : L;
   /** In millimetres, or `"Default"`, which is 0.25 mm. Defaults to `"Default"`. R2018 only. */
   readonly lineweight?: V extends "R12" ? "Default" | R12Lineweights : LineweightOf<W> | "Default";
@@ -2017,6 +2034,7 @@ export interface LayerOptions<
  *   are compile errors.
  * @typeParam Z - The drawing's standard, or `undefined` for none.
  * @typeParam P - The pen as written.
+ * @typeParam X - `string` in an edit, where a literal may name any linetype of the file.
  */
 export interface EntityOptions<
   V extends DxfVersion = "R2018",
@@ -2027,6 +2045,7 @@ export interface EntityOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   C extends EntityColorGiven = EntityColor,
+  X extends string = never,
 > {
   /**
    * A name for the entity that no other entity of the drawing has: 1 to 64 letters A to Z or a
@@ -2038,14 +2057,15 @@ export interface EntityOptions<
   /** Its own transparency: a whole percent from 0 to 90, `"ByLayer"`, the default, or `"ByBlock"`. R2018 only. */
   readonly transparency?: V extends "R12" ? "ByLayer" : EntityTransparency;
   /**
-   * A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`. R2018 only. Under a
-   * standard, a linetype of the standard by name, which the drawing then has.
+   * A linetype as `LinetypeChoice` takes one: `"Continuous"`, `"ByBlock"`, `"ByLayer"`, one of
+   * the library's by name, or a definition. R2018 only. Under a standard, a linetype of the
+   * standard by name, which the drawing then has.
    */
   readonly linetype?: Z extends Standard
     ? LinetypeOfStandard<L, Z>
     : V extends "R12"
       ? R12LinetypeChoice<T, L, "bylayer", R12EntityStyle>
-      : LinetypeChoice<T, L>;
+      : LinetypeChoice<T, L, X>;
   /**
    * In millimetres, or `"ByLayer"`, `"ByBlock"` or `"Default"`. R2018 only. Under a standard,
    * `"ByLayer"` or `"ByBlock"`, and a pen gives a lineweight.
@@ -2080,7 +2100,8 @@ export interface PointOptions<
   I extends string = string,
   Z extends Standard | undefined = undefined,
   P extends string = string,
-> extends EntityOptions<V, T, W, L, I, Z, P> {
+  X extends string = never,
+> extends EntityOptions<V, T, W, L, I, Z, P, EntityColor, X> {
   /** How far the figure is turned, in degrees counterclockwise. Brought into 0 up to 360. */
   readonly rotation?: number;
 }
@@ -2094,7 +2115,8 @@ export interface EllipseOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   O extends EntityColorGiven = EntityColor,
-> extends EntityOptions<V, T, W, L, I, Z, P, O> {
+  X extends string = never,
+> extends EntityOptions<V, T, W, L, I, Z, P, O, X> {
   /**
    * For an arc of the ellipse, the parameter it starts at, in degrees counterclockwise from the end
    * of the major axis. Given with `endParameter` or not at all. Brought into 0 up to 360.
@@ -2117,7 +2139,8 @@ export interface SplineOptions<
   E extends Point = Point,
   C extends boolean = boolean,
   O extends EntityColorGiven = EntityColor,
-> extends EntityOptions<V, T, W, L, I, Z, P, O> {
+  X extends string = never,
+> extends EntityOptions<V, T, W, L, I, Z, P, O, X> {
   /** The direction it leaves the first point in. Worked out from the points when left out. */
   readonly startTangent?: [C] extends [true] ? typeof SPLINE_CLOSED_TANGENT : Tangent<S>;
   /** The direction it arrives at the last point in. Worked out from the points when left out. */
@@ -2140,7 +2163,8 @@ export interface ControlSplineOptions<
   C extends readonly Point[] = readonly Point[],
   H extends readonly number[] = readonly number[],
   O extends EntityColorGiven = EntityColor,
-> extends EntityOptions<V, T, W, L, I, Z, P, O> {
+  X extends string = never,
+> extends EntityOptions<V, T, W, L, I, Z, P, O, X> {
   /** From 1 up to `SPLINE_DEGREE_MOST`. Defaults to 3. */
   readonly degree?: SplineDegree<D>;
   /**
@@ -2201,7 +2225,8 @@ export type HatchOptions<
   S extends number = number,
   G extends HatchGradient = HatchGradient,
   C extends EntityColorGiven = EntityColor,
-> = EntityOptions<V, T, W, L, I, Z, P, C> &
+  X extends string = never,
+> = EntityOptions<V, T, W, L, I, Z, P, C, X> &
   (
     | {
         /**
@@ -2249,8 +2274,9 @@ export interface PolylineOptions<
   N extends number = number,
   R extends number = number,
   C extends EntityColorGiven = EntityColor,
+  X extends string = never,
 >
-  extends EntityOptions<V, T, W, L, I, Z, P, C>, Widened<V, N> {
+  extends EntityOptions<V, T, W, L, I, Z, P, C, X>, Widened<V, N> {
   /**
    * The bulge of each side, one for each: 0 for a straight side, and for an arc the tangent of a
    * quarter of the angle it turns through, greater than 0 when it turns counterclockwise.
@@ -2284,7 +2310,8 @@ export interface RectOptions<
   P extends string = string,
   R extends number = number,
   C extends EntityColorGiven = EntityColor,
-> extends EntityOptions<V, T, W, L, I, Z, P, C> {
+  X extends string = never,
+> extends EntityOptions<V, T, W, L, I, Z, P, C, X> {
   /** Rounds each corner with a quarter circle of this radius, at most half the shorter side. R2018 only. */
   readonly radius?: V extends "R12" ? R12Polylines : Positive<R>;
 }
@@ -2305,8 +2332,9 @@ export interface CloudOptions<
   P extends string = string,
   N extends number = number,
   C extends EntityColorGiven = EntityColor,
+  X extends string = never,
 >
-  extends EntityOptions<"R2018", T, W, L, I, Z, P, C>, Widened<"R2018", N> {
+  extends EntityOptions<"R2018", T, W, L, I, Z, P, C, X>, Widened<"R2018", N> {
   /**
    * About how far apart the ends of each arc are, in drawing units: each side of the outline
    * holds the whole number of arcs nearest its length over this, and at least one.
@@ -2328,7 +2356,8 @@ export interface DonutOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   C extends EntityColorGiven = EntityColor,
-> extends EntityOptions<"R2018", T, W, L, I, Z, P, C> {
+  X extends string = never,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P, C, X> {
   /** The diameter of its hole, less than the outside diameter. Defaults to 0: a filled dot. */
   readonly inside?: DonutHole<H>;
 }
@@ -2350,7 +2379,8 @@ export interface ImageOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   C extends EntityColorGiven = EntityColor,
-> extends EntityOptions<"R2018", T, W, L, I, Z, P, C> {
+  X extends string = never,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P, C, X> {
   /** The file's width and height in pixels, which `rasterSize` reads from its bytes. */
   readonly pixels: readonly [width: number, height: number];
   /** How wide the image is along its bottom edge, in drawing units. */
@@ -2381,7 +2411,8 @@ export interface UnderlayOptions<
   I extends string = string,
   Z extends Standard | undefined = undefined,
   P extends string = string,
-> extends EntityOptions<"R2018", T, W, L, I, Z, P> {
+  X extends string = never,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P, EntityColor, X> {
   /** The page's number from 1, as a string. Defaults to `"1"`. */
   readonly page?: string;
   /** The page's width and height in inches, which `pdfPageSize` reads from the file. */
@@ -2472,7 +2503,8 @@ export type TextOptions<
   P extends string = string,
   R extends string = string,
   C extends EntityColorGiven = EntityColor,
-> = EntityOptions<V, T, W, L, I, Z, P, C> &
+  X extends string = never,
+> = EntityOptions<V, T, W, L, I, Z, P, C, X> &
   TextPlacement<V, Z> &
   Sized<
     Z,
@@ -2514,7 +2546,8 @@ export type ParagraphOptions<
   N extends number = number,
   F extends number = number,
   C extends EntityColorGiven = EntityColor,
-> = EntityOptions<"R2018", T, W, L, I, Z, P, C> &
+  X extends string = never,
+> = EntityOptions<"R2018", T, W, L, I, Z, P, C, X> &
   ParagraphPlacement<Z, N, F> &
   Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
 
@@ -3641,13 +3674,15 @@ function recordsCalls(): boolean {
  * `role` names a text role of it, `view(id, { scale })` declares a view at one of its scales,
  * which a viewport shows and the annotation of model space names, and a dimension names a
  * dimension style of it by id. `D` is the drawing's discipline as written, which the compiler
- * checks against the standard's.
+ * checks against the standard's. `X` is `string` for the builder of an edit's additions, where a
+ * literal may name any linetype of the file.
  */
 export class DrawingBuilder<
   V extends DxfVersion = "R2018",
   S extends number = number,
   Z extends Standard | undefined = undefined,
   D extends string = string,
+  X extends string = never,
 > {
   readonly units: Units;
   readonly dxf: V;
@@ -4021,7 +4056,7 @@ export class DrawingBuilder<
   >(
     name: Z extends Standard ? LayerOfStandard<N, Z> : LayerName<N, V>,
     options:
-      | (Z extends Standard ? StandardLayerOptions : LayerOptions<C, W, T, V, N, L>)
+      | (Z extends Standard ? StandardLayerOptions : LayerOptions<C, W, T, V, N, L, X>)
       | (() => void) = {},
     draw?: () => void,
   ): this {
@@ -4263,7 +4298,7 @@ export class DrawingBuilder<
     I extends string = string,
     P extends string = string,
     const C extends EntityColorGiven = EntityColor,
-  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
+  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I, Z, P, C, X> = {}): this {
     return this.#add(DrawingBuilder.prototype.line, options, () => ({
       kind: "line",
       layer: this.#current,
@@ -4289,7 +4324,7 @@ export class DrawingBuilder<
   >(
     points: readonly Point[],
     closed = false,
-    options: PolylineOptions<V, T, W, L, I, Z, P, N, R, C> = {},
+    options: PolylineOptions<V, T, W, L, I, Z, P, N, R, C, X> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.polyline, options, () => {
       if (points.length < 2) refuse("geometry", "A polyline needs at least 2 points");
@@ -4316,7 +4351,7 @@ export class DrawingBuilder<
     corner: Point,
     width: Positive<W>,
     height: Positive<H>,
-    options: RectOptions<V, T, LW, L, I, Z, P, R, C> = {},
+    options: RectOptions<V, T, LW, L, I, Z, P, R, C, X> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.rect, options, () => {
       const [x, y] = pt(corner);
@@ -4357,7 +4392,7 @@ export class DrawingBuilder<
     const C extends EntityColorGiven = EntityColor,
   >(
     outline: readonly Point[],
-    options: V extends "R12" ? R12Polylines : CloudOptions<A, T, W, L, I, Z, P, N, C>,
+    options: V extends "R12" ? R12Polylines : CloudOptions<A, T, W, L, I, Z, P, N, C, X>,
   ): this;
   cloud(outline: readonly Point[], options: CloudOptions | R12Polylines): this {
     // SAFETY: the other types are messages that make a literal a compile error; a value of any
@@ -4404,7 +4439,7 @@ export class DrawingBuilder<
   >(
     center: Point,
     outside: V extends "R12" ? R12Polylines : Positive<D>,
-    options?: V extends "R12" ? R12Polylines : DonutOptions<H, T, W, L, I, Z, P, C>,
+    options?: V extends "R12" ? R12Polylines : DonutOptions<H, T, W, L, I, Z, P, C, X>,
   ): this;
   donut(
     center: Point,
@@ -4492,7 +4527,7 @@ export class DrawingBuilder<
     const C extends EntityColorGiven = EntityColor,
   >(
     boundary: readonly Point[] | readonly HatchLoop[],
-    options: HatchOptions<V, T, W, L, I, Z, P, S, G, C> = {},
+    options: HatchOptions<V, T, W, L, I, Z, P, S, G, C, X> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.hatch, options, () => {
       if (this.dxf === "R12") refuse("hatch", R12_ONLY.hatches);
@@ -4605,7 +4640,7 @@ export class DrawingBuilder<
     I extends string = string,
     P extends string = string,
     const C extends EntityColorGiven = EntityColor,
-  >(points: readonly Point[], options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
+  >(points: readonly Point[], options: EntityOptions<V, T, W, L, I, Z, P, C, X> = {}): this {
     return this.#add(DrawingBuilder.prototype.wipeout, options, () => {
       if (this.dxf === "R12") refuse("wipeout", R12_ONLY.hatches);
 
@@ -4646,7 +4681,7 @@ export class DrawingBuilder<
   >(
     path: V extends "R12" ? R12Images : ImagePath<F>,
     at: Point,
-    options: V extends "R12" ? R12Images : ImageOptions<IW, IH, T, W, L, I, Z, P, C>,
+    options: V extends "R12" ? R12Images : ImageOptions<IW, IH, T, W, L, I, Z, P, C, X>,
   ): this;
   image(path: string, at: Point, options: ImageOptions | R12Images): this {
     // SAFETY: the other types are messages that make a literal a compile error; a value of any
@@ -4730,7 +4765,7 @@ export class DrawingBuilder<
   >(
     path: V extends "R12" ? R12Underlays : UnderlayPath<F>,
     at: Point,
-    options: V extends "R12" ? R12Underlays : UnderlayOptions<T, W, L, I, Z, P>,
+    options: V extends "R12" ? R12Underlays : UnderlayOptions<T, W, L, I, Z, P, X>,
   ): this;
   underlay(path: string, at: Point, options: UnderlayGiven | R12Underlays): this {
     // SAFETY: the other types are messages that make a literal a compile error; a value of any
@@ -4896,7 +4931,11 @@ export class DrawingBuilder<
     I extends string = string,
     P extends string = string,
     const C extends EntityColorGiven = EntityColor,
-  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
+  >(
+    center: Point,
+    radius: Positive<R>,
+    options: EntityOptions<V, T, W, L, I, Z, P, C, X> = {},
+  ): this {
     return this.#add(DrawingBuilder.prototype.circle, options, () => ({
       kind: "circle",
       layer: this.#current,
@@ -4921,7 +4960,7 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
-  >(at: Point, options: PointOptions<V, T, W, L, I, Z, P> = {}): this {
+  >(at: Point, options: PointOptions<V, T, W, L, I, Z, P, X> = {}): this {
     return this.#add(DrawingBuilder.prototype.point, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.points);
       const rotation = options.rotation === undefined ? 0 : turn(num(options.rotation, "rotation"));
@@ -4954,7 +4993,7 @@ export class DrawingBuilder<
     radius: Positive<R>,
     startAngle: number,
     endAngle: number,
-    options: EntityOptions<V, T, W, L, I, Z, P, C> = {},
+    options: EntityOptions<V, T, W, L, I, Z, P, C, X> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.arc, options, () => {
       const start = turn(num(startAngle, "startAngle"));
@@ -4999,7 +5038,7 @@ export class DrawingBuilder<
     center: Point,
     majorAxis: Point,
     ratio: EllipseRatio<R>,
-    options: EllipseOptions<V, T, W, L, I, Z, P, O> = {},
+    options: EllipseOptions<V, T, W, L, I, Z, P, O, X> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.ellipse, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
@@ -5046,7 +5085,7 @@ export class DrawingBuilder<
     const E extends Point = Point,
     C extends boolean = false,
     const O extends EntityColorGiven = EntityColor,
-  >(fitPoints: FitPoints<F>, options?: SplineOptions<V, T, W, L, I, Z, P, S, E, C, O>): this;
+  >(fitPoints: FitPoints<F>, options?: SplineOptions<V, T, W, L, I, Z, P, S, E, C, O, X>): this;
   spline(fitPoints: FitPoints<readonly Point[]>, options: SplineGiven = {}): this {
     return this.#add(DrawingBuilder.prototype.spline, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
@@ -5106,7 +5145,7 @@ export class DrawingBuilder<
     const O extends EntityColorGiven = EntityColor,
   >(
     controlPoints: ControlPoints<C, D>,
-    options?: ControlSplineOptions<V, T, W, L, I, Z, P, D, K, C, H, O>,
+    options?: ControlSplineOptions<V, T, W, L, I, Z, P, D, K, C, H, O, X>,
   ): this;
   controlSpline(controlPoints: readonly Point[], options: ControlSplineGiven = {}): this {
     return this.#add(DrawingBuilder.prototype.controlSpline, options, () => {
@@ -5191,7 +5230,7 @@ export class DrawingBuilder<
     P extends string = string,
     R extends string = string,
     const C extends EntityColorGiven = EntityColor,
-  >(at: Point, value: string, options?: TextOptions<H, V, T, W, L, I, S, D, Z, P, R, C>): this;
+  >(at: Point, value: string, options?: TextOptions<H, V, T, W, L, I, S, D, Z, P, R, C, X>): this;
   text(
     at: Point,
     value: string,
@@ -5249,7 +5288,7 @@ export class DrawingBuilder<
     value: ParagraphValue<Q>,
     options: V extends "R12"
       ? R12Paragraphs
-      : ParagraphOptions<H, T, W, L, I, S, D, Z, P, R, N, F, C>,
+      : ParagraphOptions<H, T, W, L, I, S, D, Z, P, R, N, F, C, X>,
   ): this;
   paragraph(
     value: string,
@@ -8704,13 +8743,12 @@ export class DrawingBuilder<
 
     const known = builtInLinetype(choice) ?? this.#linetypes.get(layerKey(choice))?.name;
 
-    if (known === undefined) {
-      const absent = `${undefinedLinetypeProblem(choice)}. Define it with linetype() first`;
+    if (known !== undefined) return known;
+    const library = libraryLinetype(choice);
 
-      return fail("undefined-linetype", absent);
-    }
+    if (library === undefined) return fail("undefined-linetype", unknownLinetypeProblem(choice));
 
-    return known;
+    return this.#define(library, true);
   }
 
   /**
@@ -8765,7 +8803,7 @@ export class DrawingBuilder<
       if (!same) {
         refuse(
           "linetype",
-          `${label}: the drawing has a linetype of this name with another pattern or description. Pass its name, or change it with linetype()`,
+          `${label}: the drawing has a linetype of this name with another pattern or description. Pass the definition the drawing has, or change it with linetype()`,
         );
       }
 

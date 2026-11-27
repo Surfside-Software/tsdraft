@@ -434,6 +434,7 @@ export type {
   FontOf,
   InsertScale,
   Knots,
+  KnownLinetype,
   LayerColor,
   LayerLinetypeName,
   LayerName,

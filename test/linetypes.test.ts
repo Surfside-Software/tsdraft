@@ -32,8 +32,8 @@ function pipe(length: number, linetypeGeneration?: boolean): Drawing {
     ],
     false,
     linetypeGeneration === undefined
-      ? { linetype: "WATER" }
-      : { linetype: "WATER", linetypeGeneration },
+      ? { linetype: WATER }
+      : { linetype: WATER, linetypeGeneration },
   );
 
   return d.build();
@@ -57,7 +57,7 @@ test("a pipe's letters run on past each vertex only with linetype generation", (
   ] as const;
 
   d.polyline(points, false, {
-    linetype: "WATER",
+    linetype: WATER,
     linetypeGeneration: true,
     widths: [
       [0, 0.05],

@@ -494,6 +494,10 @@ const LAYER_LINETYPE =
 const BUILT_IN =
   "Continuous, ByLayer and ByBlock are in every drawing and cannot be defined. The leading CAD app keeps its own and drops the definition";
 
+const PASS_THE_DEFINITION = "Pass its definition, such as linetype: FENCE";
+
+const NAMED_LINETYPE = `A linetype named by a literal is Continuous, ByLayer, ByBlock or one of the library's DASHED, HIDDEN, CENTER, PHANTOM, DASHDOT and DOT. ${PASS_THE_DEFINITION}, for any other`;
+
 const PATTERN_COUNT =
   "A linetype pattern has 2 to 12 lengths, or none for a solid line. The leading CAD app's AUDIT reports a pattern of one length, and that app discards a drawing with a pattern of more than 12";
 
@@ -846,6 +850,34 @@ export type LayerLinetypeName<N extends string> = string extends N
   : Lowercase<N> extends "bylayer" | "byblock"
     ? typeof LAYER_LINETYPE
     : LinetypeName<N>;
+
+type LibraryName = "dashed" | "hidden" | "center" | "phantom" | "dashdot" | "dot";
+
+/** Whether a linetype name is well formed: as a layer's linetype when `Layer` is true. */
+export type FormedLinetypeName<N extends string, Layer extends boolean> = Layer extends true
+  ? LayerLinetypeName<N>
+  : LinetypeName<N>;
+
+/**
+ * Resolves to `N` when each name of it is well formed and is not a literal, or is a linetype
+ * every drawing has or one of the library's, which the builder defines on first use. A name that
+ * is badly formed resolves to the message of its shape, and any other literal to the message
+ * that says to pass the definition: the types cannot know which linetypes a drawing has, so a
+ * linetype of its own is passed as its definition. Each name of a union is checked alone.
+ */
+export type KnownLinetype<N extends string, Layer extends boolean = false> = string extends N
+  ? N
+  : N extends unknown
+    ? KnownName<N, FormedLinetypeName<N, Layer>>
+    : never;
+
+type KnownName<N extends string, Checked> = [Checked] extends [N]
+  ? {} extends Record<N, never>
+    ? N
+    : Lowercase<N> extends BuiltInName | LibraryName
+      ? N
+      : typeof NAMED_LINETYPE
+  : Checked;
 
 type Unsigned<S extends string> = S extends `-${infer A}` ? A : S;
 
@@ -2150,6 +2182,14 @@ export function marksProblem(marks: unknown, pattern: readonly number[]): string
  */
 export function undefinedLinetypeProblem(name: string): string {
   return `Linetype ${JSON.stringify(name)} is not defined, and the leading CAD app discards a drawing that uses a linetype it does not have`;
+}
+
+/**
+ * What the builder says of a name the drawing does not have and the library has no linetype of:
+ * one known only when the code runs, or in an edit a literal the file does not have.
+ */
+export function unknownLinetypeProblem(name: string): string {
+  return `${undefinedLinetypeProblem(name)}. ${PASS_THE_DEFINITION}, or define it with linetype() first`;
 }
 
 /** Returns what is wrong with the linetype a layer names, or undefined when it can be a layer's. */

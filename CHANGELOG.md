@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A layer or an entity that names one of the library's linetypes, `DASHED`, `HIDDEN`, `CENTER`,
+  `PHANTOM`, `DASHDOT` or `DOT`, defines it when the drawing does not have it, as passing the
+  definition does: `d.layer("A", { linetype: "HIDDEN" })` draws and writes `HIDDEN`, where it threw
+  `undefined-linetype`. Any other linetype name written as a literal is a compile error: pass the
+  definition, as `linetype: FENCE`, which defines it on first use. A name known only when the code
+  runs is checked then, as before, and its error says to pass the definition. `Continuous`,
+  `ByLayer` and `ByBlock` stay as they were. Under a standard nothing changes. In an edit of a
+  firm's file a literal may still name the file's own linetypes, and a library name the file lacks
+  adds the library's definition. `KnownLinetype` is the type of the rule.
 - `toPNG(drawing, options)` from `tsdraft/png` draws a PNG on Node without the command: the
   bytes `tsdraft render` writes of the same picture, with the same fonts, from `toSVG`'s options
   and a `width`. It draws in a process of its own that does not keep a script from ending, and

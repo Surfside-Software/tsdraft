@@ -232,7 +232,7 @@ export interface EditBuilder {
 }
 
 /** The drawing builder an edit's additions are drawn with, over the file's definitions. */
-export type EditDrawing = DrawingBuilder<"R2018", number, undefined>;
+export type EditDrawing = DrawingBuilder<"R2018", number, undefined, string, string>;
 
 /** What `editDrawing` returns, which the command recognizes as an edit file's default export. */
 export interface EditFile {

@@ -57,6 +57,21 @@ async function edited(bytes: Uint8Array, name: string, draw: (e: EditBuilder) =>
 const added = (read: DrawingRead) =>
   (read.model.entities ?? []).filter((e) => e.mark !== undefined);
 
+test("an addition names a linetype of the file by its literal name", async () => {
+  const d = createDrawing({ units: "in" });
+  d.layer("V-FENCE", { linetype: { name: "FENCE", pattern: [1, -0.5] } });
+  const bytes = new TextEncoder().encode(toDXF(d.build()));
+
+  const { errors, out } = await edited(bytes, "rev-1", (e) =>
+    e.model((m) => m.layer("V-NEW", { linetype: "FENCE" }, () => m.line([0, 0], [5, 0]))),
+  );
+
+  assert.deepEqual(errors, []);
+  assert.ok(out);
+  const back = await geometry(out);
+  assert.equal(back.layers.find((l) => l.name === "V-NEW")?.linetype, "FENCE");
+});
+
 test("an addition is the builder's entity in the file's names, marked, with a handle from the seed, and the record lists it", async () => {
   const bytes = firmFile();
 
