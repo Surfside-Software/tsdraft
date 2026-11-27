@@ -35,7 +35,7 @@ let running: Promise<unknown> = Promise.resolve();
 
 export function plot(pictures: readonly string[]): Promise<Plotted> {
   const next = running.then(() => plotNow(pictures));
-  running = next;
+  running = next.catch(() => {});
 
   return next;
 }
@@ -91,8 +91,14 @@ function plotNow(pictures: readonly string[]): Promise<Plotted> {
     child.once("exit", (code, signal) =>
       settle(failed(`its process ended with ${signal ?? `exit code ${code}`}`)),
     );
-    child.send({ pictures, fonts: pdfFiles() } satisfies PdfRequest, (error) => {
-      if (error) settle(failed(error.message));
-    });
+
+    try {
+      child.send({ pictures, fonts: pdfFiles() } satisfies PdfRequest, (error) => {
+        if (error) settle(failed(error.message));
+      });
+    } catch (error) {
+      // SAFETY: `send` throws an Error when the message cannot be sent, as do the fonts' reads.
+      settle(failed((error as Error).message));
+    }
   });
 }

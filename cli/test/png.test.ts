@@ -215,6 +215,17 @@ test(
   },
 );
 
+test(
+  "a picture that fits the most pixels at no width is refused",
+  { skip: pngUnavailable() ?? false },
+  async () => {
+    for (const box of ["0 0 1 100000000", "0 0 x 1"]) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${box}"/>`;
+      await assert.rejects(toPNG(svg, 1600), /within \d+ pixels at any width/);
+    }
+  },
+);
+
 test("the PNG keeps a text's spaces", { skip: pngUnavailable() ?? false }, async () => {
   const d = createDrawing();
   d.text([2, 2], "H      H", { height: 1 });

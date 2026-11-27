@@ -159,7 +159,7 @@ export class Builder {
         );
 
         // Starting the next child takes time, so a child that is ready is sent the file first.
-        if (child.isReady) null;
+        if (child.isReady) await child.ready;
 
         // While a warmed spare builds, the next warms up with the same library, so that a save
         // that follows at once finds it warm. Not when the library has just changed: the
@@ -542,20 +542,22 @@ function run(
 
       if (!sent && !timedOut) return resolve("unreached");
 
-      const ending = timedOut
-        ? failure(
-            request.file,
-            "Timeout",
-            `The drawing file took longer than ${timeout} ms to build. Look for a loop that never ends`,
-            files,
-          )
-        : (result ??
-          failure(
-            request.file,
-            "Exit",
-            `The drawing file's process ended before it gave a drawing (${signal ?? `exit code ${code}`})`,
-            files,
-          ));
+      // A build that answered is its answer, though its process was ended after it.
+      const ending =
+        result ??
+        (timedOut
+          ? failure(
+              request.file,
+              "Timeout",
+              `The drawing file took longer than ${timeout} ms to build. Look for a loop that never ends`,
+              files,
+            )
+          : failure(
+              request.file,
+              "Exit",
+              `The drawing file's process ended before it gave a drawing (${signal ?? `exit code ${code}`})`,
+              files,
+            ));
 
       resolve({
         ...ending,

@@ -864,7 +864,7 @@ const caches = new Map<string, InstanceType<typeof import("./read-cache.ts").Rea
 
 /**
  * What reads a drawing file and the files it names: the cache of the project's reads, and the
- * reader of each extension, `--reader`'s, the project's, or the file's folder's.
+ * reader of each extension, `--reader`'s or the project's.
  */
 async function readersOf(file: string, named: string | undefined, cwd: string | undefined) {
   const { findProject, findReaders, readerFor, ReaderRefusal } = await import("./readers.ts");
@@ -875,16 +875,12 @@ async function readersOf(file: string, named: string | undefined, cwd: string | 
 
   if (!cache) caches.set(folder, (cache = new ReadCache(folder)));
 
-  const readerOf = (extension: string) => {
-    const found = readerFor(
+  // Never from the drawing's own folder, or a drawing from elsewhere would pick the code that reads it.
+  const readerOf = (extension: string) =>
+    readerFor(
       findReaders({ cwd: at, inputs: [file], ...(named !== undefined && { reader: named }) }),
       extension,
     );
-
-    if (found !== null || named !== undefined || extension.toLowerCase() === ".dxf") return found;
-
-    return readerFor(findReaders({ cwd: dirname(file), inputs: [file] }), extension);
-  };
 
   return { cache, readerOf, ReaderRefusal };
 }
@@ -941,6 +937,7 @@ async function readContext(
 ): Promise<ReadContext> {
   const pageSizes: Record<string, Record<string, readonly [number, number]>> = Object.create(null);
   const pdfs = new Map<string, Uint8Array | null>();
+  const measured = new Set<string>();
 
   const spaces = [
     read.model.entities,
@@ -951,19 +948,17 @@ async function readContext(
   for (const list of spaces) {
     for (const e of list ?? []) {
       if (e.kind !== "underlay" || isAbsolute(e.path) || /^[A-Za-z]:/.test(e.path)) continue;
+      // Each page of a PDF is measured once, however many underlays show it.
+      const sized = JSON.stringify([e.page, e.path]);
+
+      if (measured.has(sized)) continue;
+      measured.add(sized);
       const at = join(dirname(file), e.path.replaceAll("\\", "/"));
       let pdf = pdfs.get(at);
 
       if (pdf === undefined) {
         track(at, fileVersion(at));
-
-        try {
-          pdf = new Uint8Array(readFileSync(at));
-        } catch {
-          pdf = null;
-        }
-
-        pdfs.set(at, pdf);
+        pdfs.set(at, (pdf = readNamed(at)));
       }
 
       const size = pdf === null ? undefined : library.pdfPageSize(pdf, e.page);
@@ -3138,9 +3133,11 @@ function shxFilesOf(library: Library, drawing: Drawing, file: string): ShxFiles 
 
       if (entry !== undefined) {
         try {
-          const size = statSync(at).size;
+          const stats = statSync(at);
+          const size = stats.size;
 
-          if (size <= SHX_FILE_BYTES && total + size <= SHX_BYTES) {
+          // A pipe or a device has no size, and could hold the build forever.
+          if (stats.isFile() && size <= SHX_FILE_BYTES && total + size <= SHX_BYTES) {
             total += size;
             bytes = new Uint8Array(readFileSync(at));
           }
@@ -3168,6 +3165,21 @@ interface RasterFiles {
 
 /** The most bytes the files of a drawing's images are read to, all told. */
 const RASTER_BYTES = 1 << 30;
+
+/**
+ * The bytes of a file a drawing names, or null when there is none. One that is not a plain file,
+ * such as a pipe or a device, or is over `RASTER_BYTES`, is not read: it could hold a build
+ * forever or fill its memory.
+ */
+function readNamed(at: string): Uint8Array | null {
+  try {
+    const found = statSync(at);
+
+    return found.isFile() && found.size <= RASTER_BYTES ? new Uint8Array(readFileSync(at)) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The files of a drawing's images, by each image's path as the drawing gives it, read from the
@@ -3228,11 +3240,9 @@ function rasterFiles(
         // A missing file has no file behind it.
       }
 
-      let bytes: Uint8Array;
+      const bytes = readNamed(at);
 
-      try {
-        bytes = new Uint8Array(readFileSync(at));
-      } catch {
+      if (bytes === null) {
         diagnostics.push({
           rule: "image",
           severity: "warning",
@@ -3325,11 +3335,7 @@ function pageFiles(
       // A missing file has no file behind it.
     }
 
-    try {
-      return new Uint8Array(readFileSync(at));
-    } catch {
-      return null;
-    }
+    return readNamed(at);
   };
 
   /** Each page's files, read once: its PDF's size of it, and its picture's pixels. */

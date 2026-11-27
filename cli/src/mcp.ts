@@ -160,6 +160,7 @@ export async function serve(): Promise<void> {
 
         cancels.set(id, () => {
           token.cancelled = true;
+          builds.stop(token);
           programs.cancel(id);
         });
 
@@ -256,6 +257,12 @@ interface Token {
   cancelled: boolean;
 }
 
+/** The build running, by the token of what asked for it, and the builder it runs in. */
+interface Running {
+  readonly token: Token;
+  builder?: Builder;
+}
+
 /** A build that was not started, because what asked for it was cancelled first. */
 class Skipped extends Error {}
 
@@ -266,6 +273,7 @@ class Skipped extends Error {}
 class Builds {
   #warm: { key: string; builder: Builder } | undefined;
   #queue: Promise<unknown> = Promise.resolve();
+  #running: Running | undefined;
 
   /**
    * Builds and writes the pictures of `file`, a path from the working folder, and gives what
@@ -280,8 +288,14 @@ class Builds {
   ): Promise<T> {
     const run = this.#queue.then(async () => {
       if (token.cancelled) throw new Skipped("Cancelled before it started");
+      const running: Running = { token };
+      this.#running = running;
 
-      return use(await this.#render(realpath(resolve(file)), input));
+      try {
+        return use(await this.#render(realpath(resolve(file)), input, running));
+      } finally {
+        this.#running = undefined;
+      }
     });
 
     this.#queue = run.catch(() => {});
@@ -289,7 +303,12 @@ class Builds {
     return run;
   }
 
-  async #render(file: string, input: RenderInput): Promise<Rendered> {
+  /** Stops the build `token` asked for, when it is the one running, so the next need not wait. */
+  stop(token: Token): void {
+    if (this.#running?.token === token) this.#running.builder?.cancel();
+  }
+
+  async #render(file: string, input: RenderInput, running: Running): Promise<Rendered> {
     const common = {
       timeout: input.timeout,
       drawNoPlot: input.drawNoPlot,
@@ -313,6 +332,8 @@ class Builds {
             : { box: input.view, layout: input.layout },
       });
 
+      running.builder = builder;
+
       try {
         return await render(file, { ...options, builder, closeBuilder: true, view: input.view });
       } finally {
@@ -326,6 +347,8 @@ class Builds {
       this.#warm?.builder.close();
       this.#warm = { key, builder: new Builder({ ...common, warm: true }) };
     }
+
+    running.builder = this.#warm.builder;
 
     return render(file, { ...options, builder: this.#warm.builder, closeBuilder: false });
   }
@@ -509,6 +532,9 @@ class Programs {
 
       child.once("exit", () => {
         this.#children.delete(child);
+
+        // A spare that has gone is never handed a program, which would wait for its deadline.
+        if (this.#spare?.child === child) this.#spare = undefined;
         done(false);
       });
     });
@@ -520,7 +546,11 @@ class Programs {
     // A build the program left waiting is skipped from now, before its process has gone.
     const token = this.#tokens.get(id);
 
-    if (token) token.cancelled = true;
+    if (token) {
+      token.cancelled = true;
+      this.#builds.stop(token);
+    }
+
     this.#running.get(id)?.kill("SIGKILL");
   }
 
@@ -636,8 +666,10 @@ class Programs {
         ...(done.json === undefined && { isError: true }),
       };
     } finally {
-      // Whatever the program left waiting, such as a render queued, is not started.
+      // Whatever the program left waiting, such as a render queued, is not started, and a render
+      // it left running is stopped.
       token.cancelled = true;
+      this.#builds.stop(token);
       this.#tokens.delete(id);
       this.#running.delete(id);
       child.kill("SIGKILL");

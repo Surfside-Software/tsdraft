@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- `render` and `dev` take the reader of a DWG only from the project they run in or from
+  `--reader`, never from the folder of the drawing: a drawing from elsewhere no longer chooses the
+  code that reads it. A DWG whose project names no reader is not read, and says so.
+- A file a drawing names, as an image, an underlay's PDF or a shape file, is read only when it is a
+  plain file of at most 1 GB: a pipe or a device beside a drawing no longer holds its build
+  forever. An image or an underlay without one draws as missing, with its warning.
+- A build that answered is drawn, though its process was ended at the time limit after it; it was
+  reported as a timeout. A PNG too narrow for its height to fit 16 million pixels at any width is
+  refused, with its `pngError`, where it was drawn far past the limit.
+- `tsdraft dev` keeps running when a folder of a file the drawing loads cannot be watched, as at
+  the system's limit of watches, and `/state.json` still finds a change to it.
+- `tsdraft mcp`: a cancelled `render`, or one a program left running when it ended, stops its
+  build, and the next render no longer waits for it; a waiting program process that died is no
+  longer handed the next `execute`, which then waited for its time limit; a brief lists errors
+  before warnings.
+- `tsdraft shows` says `xrefsCapped` when an xref given lies more than 16 deep, as it does past 64
+  reads.
+- `tsdraft write` takes away no file outside its out folder that a record there names, and a copy
+  whose record cannot be written is taken away again and reported as not written.
+- The read cache tells a reader apart by its WebAssembly and native files too, and a kept read that
+  fails its check is removed, so the next build reads the file again.
 - Agent feedback, off unless the user turns it on with `tsdraft feedback mode on`: `tsdraft feedback`
   and a `feedback` tool of `tsdraft mcp` let an agent report where tsdraft got in its way, as a kind
   and a subject from lists, with three short texts in its own words. Only the report's id, kind,

@@ -81,7 +81,12 @@ export function brief(state: BuildState, code: 0 | 1 | 2, cwd: string): Brief {
 
   for (const d of state.diagnostics) rules[d.rule] = (rules[d.rule] ?? 0) + 1;
 
-  const diagnostics = state.diagnostics.slice(0, BRIEF_DIAGNOSTICS).map((d) => diagnostic(d, near));
+  // A read file's diagnostics come in the order its parts were drawn, an error among warnings.
+  const diagnostics = [...state.diagnostics]
+    .sort((a, b) => Number(a.severity === "warning") - Number(b.severity === "warning"))
+    .slice(0, BRIEF_DIAGNOSTICS)
+    .map((d) => diagnostic(d, near));
+
   const { outputs } = state;
   const pictures: Picture[] = [];
 

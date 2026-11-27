@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -575,6 +576,29 @@ test("the pictures draw an attachment inside a drawing the file gives with its x
   assert.doesNotMatch(readFileSync(broken.state.outputs.svg!, "utf8"), /DETAIL\|/);
 });
 
+test("a build that answered is drawn, though its process never ends on its own", () =>
+  inScratch((dir) => {
+    // Once its answer has left, the drawing holds its process in a loop.
+    writeFileSync(
+      join(dir, "held.ts"),
+      `import { createDrawing } from "tsdraft";
+const send = process.send!.bind(process);
+process.send = ((message: { type?: string }, callback?: () => void) =>
+  send(message, () => {
+    if (message.type === "done") for (;;);
+    callback?.();
+  })) as typeof process.send;
+const d = createDrawing({ units: "ft" });
+d.line([0, 0], [10, 0]);
+export default d.build();
+`,
+    );
+
+    const { state, status } = render(join(dir, "held.ts"), "--out", dir, "--timeout", "5000");
+    assert.equal(status, 0, state.error?.message);
+    assert.equal(state.drawing?.counts.entities, 1);
+  }));
+
 test("a drawing file Node reads as CommonJS says how to make it a module", () => {
   const dir = realpathSync(tempDir());
   writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "commonjs" }));
@@ -760,6 +784,37 @@ test("dev rebuilds when a file outside the project that the drawing imports chan
       );
     });
   }));
+
+test(
+  "dev builds a drawing that imports a file from a folder it cannot watch",
+  { timeout: 60_000 },
+  (t) => {
+    if (process.getuid?.() === 0) return t.skip("root can watch any folder");
+
+    return inScratch(async (dir) => {
+      const locked = join(dir, "locked");
+      mkdirSync(locked);
+      writeFileSync(join(locked, "helper.ts"), "export const width = 10;\n");
+      const file = join(dir, "drawing.ts");
+      writeFileSync(
+        file,
+        'import { createDrawing } from "tsdraft";\nimport { width } from "./locked/helper.ts";\n' +
+          "const d = createDrawing();\nd.line([0, 0], [width, 0]);\nexport default d.build();\n",
+      );
+      // Its files can be read by their paths, and the folder can be neither listed nor watched.
+      chmodSync(locked, 0o111);
+
+      try {
+        await withDev(file, async (base) => {
+          const first = stateOf(await (await fetch(`${base}/state.json?after=0`)).text());
+          assert.deepEqual([first.ok, first.drawing?.extents.max], [true, [10, 0]]);
+        });
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+    });
+  },
+);
 
 test("dev rebuilds when a package link in node_modules is pointed at another folder", () =>
   inScratch(async (dir) => {
@@ -1701,6 +1756,25 @@ export default d.build();
   },
 );
 
+test("a plot that cannot be sent fails alone, and the next plot runs", async () => {
+  const { plot } = await import("../src/pdf.ts");
+  // A picture that throws as it is read, so the message that carries it cannot be made.
+  const unsendable: string[] = [];
+
+  Object.defineProperty(unsendable, 0, {
+    enumerable: true,
+    get: () => {
+      throw new Error("not readable");
+    },
+  });
+
+  const unsent = await plot(unsendable);
+  assert.match(unsent.error ?? "", /^The sheets could not be plotted: /);
+
+  const next = await plot([]);
+  assert.ok("error" in next);
+});
+
 test("dev plots the set and a sheet on request, and no picture that draws what does not plot", async () => {
   const sheet = join(root, "../examples/site-plan.ts");
   await withDev(sheet, async (base) => {
@@ -1811,6 +1885,42 @@ test("render reads each image's file beside its drawing, an xref's beside the xr
   const svg = readFileSync(state.outputs.svg!, "utf8");
   assert.match(svg, /data-pixels="2 2"/);
   assert.match(svg, /data-pixels="3 3"/);
+});
+
+test("render reads no file a drawing names that is a pipe", { timeout: 60_000 }, (t) => {
+  const dir = realpathSync(tempDir());
+
+  if (spawnSync("mkfifo", [join(dir, "held.pdf")]).status !== 0) return t.skip("no mkfifo");
+  spawnSync("mkfifo", [join(dir, "held.png")]);
+
+  const underlay = { kind: "underlay", layer: "0", path: "held.pdf", at: [0, 0], pageSize: [1, 1] };
+
+  const image = {
+    kind: "image",
+    layer: "0",
+    path: "held.png",
+    at: [0, 0],
+    width: 1,
+    height: 1,
+    pixels: [1, 1],
+  };
+
+  const drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [underlay, image],
+  };
+
+  const plan = join(dir, "plan.ts");
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state, status } = render(plan);
+  assert.equal(status, 0, state.error?.message);
+  assert.deepEqual(
+    state.diagnostics.map((d) => d.rule),
+    ["image", "underlay"],
+  );
 });
 
 test("render checks each underlay's page size against its PDF, and draws no page the PDF lacks", () => {

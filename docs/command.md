@@ -133,7 +133,7 @@ layout's paper alone; with neither, model space. With `--near`, only what comes 
 of the point, nearest first, with its `distance`. An xref is followed only where `--xref` gives
 its file, at any depth by the xref's name, and inside an xref only its attachments, as CAD
 programs load no overlay of a referenced drawing. At most 64 reads of xrefs are given, counting
-each place a file is attached at, and past them the JSON says `xrefsCapped`. The JSON gives the file, its reader, `from`, which is
+each place a file is attached at, and at most 16 deep, and past either the JSON says `xrefsCapped`. The JSON gives the file, its reader, `from`, which is
 `memory`, `disk` or `file` for where its read came from, the xrefs followed, `skipped` for an
 xref's file that could not be read, the `entities` and `capped`. It exits 0 with an answer, 1 for
 a file that could not be read or a layout the file does not have, and 64 for wrong usage.

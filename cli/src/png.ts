@@ -158,7 +158,7 @@ function next(): void {
  * renderer's process, with each TrueType font in the face `pictureFaces` of `fonts.ts` has
  * for it, and each text sized so that the capitals of the face it is drawn in are as tall as
  * the text. A width that would make more than `MAX_PIXELS` is narrowed to fit; the
- * result gives the width used. Rejects with the reason when `pngUnavailable()` gives one, and
+ * result gives the width used. A picture that fits at no width is refused. Rejects with the reason when `pngUnavailable()` gives one, and
  * with a `RendererCrashed` when the renderer's process died on this picture.
  *
  * @param known - The faces to choose from. The machine's unless given.
@@ -174,6 +174,12 @@ export async function toPNG(
   const [, , w = 1, h = 1] = (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? "").split(" ").map(Number);
   const aspect = Math.max(h, 1e-9) / Math.max(w, 1e-9);
   const fitted = Math.max(1, Math.min(width, Math.floor(Math.sqrt(MAX_PIXELS / aspect))));
+
+  // Too tall even one pixel wide, or a box that is not numbers.
+  if (!(fitted * fitted * aspect <= MAX_PIXELS)) {
+    throw new Error(`The picture cannot be drawn within ${MAX_PIXELS} pixels at any width`);
+  }
+
   // The font files this picture's text is set in, beside the renderer's own.
   const used = pictureFaces(svg, known);
   const request = { id: ++lastId, svg, width: fitted, faces: used, capHeight: shippedCap() };

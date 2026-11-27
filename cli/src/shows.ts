@@ -47,8 +47,9 @@ export async function shows(request: ShowsRequest): Promise<{ json: unknown; cod
   // A block name's letters A to Z are one in either case, as the leading CAD app compares them.
   const key = (name: string) => name.replace(/[a-z]/g, (c) => c.toUpperCase());
   const given = new Map(Object.entries(request.xrefs).map(([name, f]) => [key(name), f]));
-  // Past XREF_NODES, the walk stops reading xrefs, and the answer says so.
+  // Past XREF_NODES, or XREF_DEPTH deep, the walk stops reading xrefs, and the answer says so.
   let nodes = 0;
+  let deep = false;
 
   /**
    * The reads of the xrefs a read names that were given, and of theirs below. Inside an xref only
@@ -57,7 +58,11 @@ export async function shows(request: ShowsRequest): Promise<{ json: unknown; cod
   const xrefsOf = async (of: DrawingRead, depth: number, chain: Set<string>) => {
     const out: ReadXrefs = {};
 
-    if (depth >= XREF_DEPTH) return out;
+    if (depth >= XREF_DEPTH) {
+      deep ||= of.xrefs.some((xref) => !xref.overlay && given.has(key(xref.name)));
+
+      return out;
+    }
 
     for (const xref of of.xrefs) {
       if (depth > 0 && xref.overlay) continue;
@@ -107,7 +112,7 @@ export async function shows(request: ShowsRequest): Promise<{ json: unknown; cod
     from: host.from,
     ...where,
     xrefs: Object.keys(xrefs),
-    ...(nodes > XREF_NODES && { xrefsCapped: true }),
+    ...((nodes > XREF_NODES || deep) && { xrefsCapped: true }),
     ...(skipped.length > 0 && { skipped }),
   };
 

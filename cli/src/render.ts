@@ -53,9 +53,11 @@ export async function render(file: string, options: RenderOptions): Promise<Rend
   const building = builder.build(file, projectRoot(file));
   // The machine's fonts are looked for while the drawing is built.
   faces();
-  const outcome = (await building)!;
+  const outcome = await building;
 
   if (options.closeBuilder) builder.close();
+
+  if (!outcome) throw new Error("The build was stopped before it answered");
 
   type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 

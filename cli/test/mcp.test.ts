@@ -8,7 +8,9 @@ import { createInterface } from "node:readline";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createDrawing, toDXF } from "tsdraft";
+import { brief, BRIEF_DIAGNOSTICS } from "../src/brief.ts";
 import type { JsonObject } from "../src/guards.ts";
+import type { BuildDiagnostic, BuildState } from "../src/state.ts";
 import { inScratch } from "./scratch.ts";
 
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -222,6 +224,38 @@ test("render gives a diagnostic at its call, and a failed build at its line", as
   });
 });
 
+test("a brief lists the errors first, wherever the build put them", () => {
+  const warnings = Array.from({ length: BRIEF_DIAGNOSTICS }, (): BuildDiagnostic => ({
+    rule: "image",
+    severity: "warning",
+    message: "a warning",
+  }));
+
+  const outputs = { svg: null, png: null, pngError: null, pdf: null, pdfError: null };
+
+  const state: BuildState = {
+    schema: 3,
+    ok: true,
+    build: 1,
+    session: "s",
+    pending: null,
+    shownBuild: 1,
+    file: "plan.dxf",
+    finishedAt: "",
+    ms: 1,
+    timings: {},
+    drawing: null,
+    error: null,
+    log: "",
+    outputs: { ...outputs, pngFonts: [], view: null, changes: null, layouts: [] },
+    diagnostics: [...warnings, { rule: "image", severity: "error", message: "an error" }],
+  };
+
+  const made = brief(state, 2, "/");
+  assert.equal(made.diagnostics[0]?.message, "an error");
+  assert.equal(made.more, 1);
+});
+
 test("render refuses input it cannot use as the tool's own error", async () => {
   await inScratch(async (dir) => {
     await withServer(dir, async (server) => {
@@ -382,6 +416,45 @@ test("a cancelled program is ended and gets no answer", async () => {
     });
   });
 });
+
+test(
+  "a cancelled render stops its build, and the next render does not wait for it",
+  { timeout: 90_000 },
+  async () => {
+    await inScratch(async (dir) => {
+      writeFileSync(join(dir, "loop.ts"), "for (;;);\n");
+      writeFileSync(join(dir, "sheet.ts"), SHEET);
+
+      await withServer(dir, async (server) => {
+        server.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: "loop",
+            method: "tools/call",
+            params: { name: "render", arguments: { file: "loop.ts", timeout: 600_000 } },
+          }),
+        );
+
+        await server.ask("ping");
+        await settle(1_000);
+        server.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "notifications/cancelled",
+            params: { requestId: "loop" },
+          }),
+        );
+
+        const next = textOf(await call(server, "render", { file: "sheet.ts", images: 0 }));
+        assert.equal(next.ok, true);
+        assert.equal(
+          server.lines.some((line) => line.id === "loop"),
+          false,
+        );
+      });
+    });
+  },
+);
 
 test("the server answers a bad message with JSON-RPC's errors, and a notification never", async () => {
   await inScratch(async (dir) => {
@@ -558,6 +631,39 @@ test("programs at once, and one cancelled as it starts, leave one process waitin
     });
   });
 });
+
+test("a waiting process that died is not given the next program", async (t) => {
+  if (!existsSync("/proc/self/stat")) return t.skip("no /proc to find the process in");
+
+  await inScratch(async (dir) => {
+    await withServer(dir, async (server) => {
+      assert.equal(textOf(await call(server, "execute", { code: "return 1;" })).value, 1);
+      const spare = programPids(server.child.pid!);
+      assert.equal(spare.length, 1);
+      process.kill(spare[0]!, "SIGKILL");
+
+      for (let i = 0; i < 50 && programPids(server.child.pid!).length > 0; i++) await settle(100);
+      const after = await call(server, "execute", { code: "return 2;", timeout: 20_000 });
+      assert.equal(textOf(after).value, 2);
+    });
+  });
+});
+
+function programPids(pid: number): number[] {
+  return readdirSync("/proc")
+    .filter((entry) => /^\d+$/.test(entry))
+    .flatMap((entry) => {
+      try {
+        const stat = readFileSync(`/proc/${entry}/stat`, "utf8");
+        const parent = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+        const command = readFileSync(`/proc/${entry}/cmdline`, "utf8");
+
+        return parent === pid && command.includes("program.") ? [Number(entry)] : [];
+      } catch {
+        return [];
+      }
+    });
+}
 
 test("a program that never yields ends with the server", async (t) => {
   if (!existsSync("/proc/self/stat")) return t.skip("no /proc to look for the process in");
