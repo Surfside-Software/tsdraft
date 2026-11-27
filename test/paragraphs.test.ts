@@ -378,6 +378,12 @@ test("a list hangs its items under their marks, and its tabs and indents fall wh
     ),
   );
 
+  // A surrogate with no pair is a character of its own, and so is what follows it.
+  assert.deepEqual(
+    runs({ value: "\\pxqd;\ud83d\uff21BC", width: 20, ...arial }).map(([value]) => value),
+    ["\ud83d", "\uff21", "B", "C"],
+  );
+
   // The paragraph's own spacing, by a factor and exactly, and room before and after it.
   const baselines = (value: string, height = 1) =>
     layoutParagraph({ value, height, ...arial }).lines.map((line) => +line.baseline.toFixed(4));

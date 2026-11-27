@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createDrawing,
+  DrawingError,
   HIDDEN,
   readDXF,
   toDXF,
@@ -11,9 +12,19 @@ import {
   type Entity,
   type Point,
 } from "../src/index.ts";
-import { clamped, ellipsePoint, splinePoint } from "../src/curves.ts";
+import {
+  clamped,
+  ellipsePoint,
+  fitSpline,
+  splineBox,
+  splinePieces,
+  splinePoint,
+  splinePolyline,
+} from "../src/curves.ts";
 import { extents } from "../src/extents.ts";
 import { readProblems } from "./read-agreement.ts";
+import { within } from "./time-limit.ts";
+import { wrong } from "./values.ts";
 
 import { recordFields } from "./dxf-groups.ts";
 
@@ -166,6 +177,34 @@ test("clamped gives the same curve, starting and ending on its control points", 
   }
 
   assert.deepEqual(clamped(held), held);
+});
+
+test("the curves refuse a spline of a degree or lists lint refuses, in time in proportion to it", () => {
+  const points: Point[] = [
+    [0, 0],
+    [1, 1],
+    [2, 0],
+  ];
+
+  const refused = (draw: () => void) => assert.throws(draw, RangeError);
+  refused(() => splinePoint(50, [0, 1], points, undefined, 0.5));
+  refused(() => splinePieces(2, [0, 0, 0, 1, 1], points, undefined));
+  refused(() => splineBox(3, [0, 0, 0, 0, 1, 1, 1], points, undefined, 0));
+  refused(() => splinePolyline(2, [0, 0, 0, 1, 1, 1], points, [1, 1], 8));
+  refused(() => clamped({ degree: 50, knots: [0, 1], controlPoints: points }));
+  refused(() => clamped({ degree: 2, knots: [0, 0, NaN, 1, 1, 1], controlPoints: points }));
+  // A tangent of no length is none, and fewer than 2 fit points have no fit.
+  assert.deepEqual(fitSpline(points, "chord", [0, 0]), fitSpline(points, "chord"));
+  refused(() => fitSpline([], "chord"));
+
+  // The builder refuses a degree past the most before it makes knots for it.
+  assert.throws(
+    () =>
+      within(1000, () =>
+        createDrawing().controlSpline(points, wrong<{ degree: 2 }>({ degree: 100_000_000.5 })),
+      ),
+    (e) => e instanceof DrawingError && /degree/.test(e.message),
+  );
 });
 
 test("readDXF gives back each curve as it was drawn, and one seen from below as it draws", async () => {

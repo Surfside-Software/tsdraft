@@ -15,6 +15,36 @@ type Xy = readonly [number, number];
 
 const TAU = 2 * Math.PI;
 
+/** The highest degree of a spline by its control points. */
+export const SPLINE_DEGREE_MOST = 11;
+
+/**
+ * Throws a `RangeError` for a B-spline these functions cannot draw in time in proportion to its
+ * lists: a degree that is not a whole number from 1 to `SPLINE_DEGREE_MOST`, no more control
+ * points than its degree, knots that are not one more than its control points and its degree
+ * together, or weights that are not one for each control point. `lint` refuses each of them.
+ */
+function checkSpline(
+  degree: number,
+  knots: readonly number[],
+  count: number,
+  weights: readonly number[] | undefined,
+): void {
+  if (
+    Number.isInteger(degree) &&
+    degree >= 1 &&
+    degree <= SPLINE_DEGREE_MOST &&
+    count > degree &&
+    knots.length === count + degree + 1 &&
+    (weights === undefined || weights.length === count)
+  )
+    return;
+
+  throw new RangeError(
+    `A B-spline needs a whole degree from 1 to ${SPLINE_DEGREE_MOST}, more control points than its degree, as many knots as its control points and its degree and one more, and a weight for each control point or none`,
+  );
+}
+
 /** The parameter `t` of an ellipse turned into [0, 2π). */
 export function unturned(t: number): number {
   const r = t % TAU;
@@ -67,6 +97,7 @@ export function splinePoint(
   weights: readonly number[] | undefined,
   u: number,
 ): [number, number] {
+  checkSpline(degree, knots, points.length, weights);
   const k = spanOf(degree, knots, points.length, u);
   const d: [number, number, number][] = [];
 
@@ -115,6 +146,7 @@ export function splinePolyline(
   weights: readonly number[] | undefined,
   steps: number,
 ): [number, number][] {
+  checkSpline(degree, knots, points.length, weights);
   const breaks = splineBreaks(degree, knots, points.length);
   const out: [number, number][] = [];
 
@@ -295,6 +327,9 @@ export function fitSpline(
   endTangent?: Xy,
   closed = false,
 ): FittedSpline {
+  if (points.length < 2)
+    throw new RangeError("A spline through fit points needs at least 2 of them");
+
   if (closed) {
     const ring = [...points, points[0]!];
     const tangent = joinTangent(ring, spacing);
@@ -315,10 +350,10 @@ export function fitSpline(
   const pace = un - u0 > 0 ? chords / (un - u0) : 1;
 
   const derivative = (v: Xy | undefined): Xy | undefined => {
-    if (v === undefined) return undefined;
-    const l = Math.hypot(v[0], v[1]);
+    const l = v === undefined ? 0 : Math.hypot(v[0], v[1]);
 
-    return [(v[0] / l) * pace, (v[1] / l) * pace];
+    // A tangent of no length has no direction, and the end bends not at all, as with none.
+    return v === undefined || !(l > 0) ? undefined : [(v[0] / l) * pace, (v[1] / l) * pace];
   };
 
   return {
@@ -342,6 +377,7 @@ export function splinePieces(
   points: readonly Xy[],
   weights: readonly number[] | undefined,
 ): Weighted[][] {
+  checkSpline(degree, knots, points.length, weights);
   const out: Weighted[][] = [];
 
   const [dx, dy, dw] = [
@@ -601,11 +637,23 @@ export interface BSpline {
  * starts on its first control point and ends on its last, as the leading CAD app saves every
  * spline. Knots are inserted at the ends of what it runs over, one at a time as Boehm inserts
  * them, and the knots and control points outside are dropped. A clamped spline comes back as it
- * is.
+ * is. Throws a `RangeError` for a spline `lint` refuses for its degree or its lists.
  */
 export function clamped(spline: BSpline): BSpline {
   const { degree: p } = spline;
+  const n = spline.controlPoints.length;
+  checkSpline(p, spline.knots, n, spline.weights);
   let knots = [...spline.knots];
+
+  // The ends of the span it runs over are then among its knots, so each takes p + 1 insertions
+  // at most.
+  if (
+    !knots.every((k, i) => Number.isFinite(k) && (i === 0 || k >= knots[i - 1]!)) ||
+    !(knots[p]! < knots[n]!)
+  )
+    throw new RangeError(
+      "A B-spline's knots must be finite numbers that never fall, and run over a span",
+    );
 
   let points: Weighted[] = spline.controlPoints.map((q, i) => {
     const w = spline.weights?.[i] ?? 1;
@@ -613,7 +661,7 @@ export function clamped(spline: BSpline): BSpline {
     return [q[0] * w, q[1] * w, w];
   });
 
-  const [a, b] = [knots[p]!, knots[spline.controlPoints.length]!];
+  const [a, b] = [knots[p]!, knots[n]!];
 
   /** Inserts `u` once in the span from knot `k`, which holds it. */
   const insert = (u: number, k: number): void => {

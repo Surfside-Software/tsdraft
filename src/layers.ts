@@ -259,9 +259,10 @@ const SOFT_HYPHEN = "\u00ad";
 /**
  * Soft hyphens that AUDIT ignores. It does not ignore one in front of a
  * combining mark or a Hangul jamo: `E`, a soft hyphen and a combining acute
- * accent are not É to it.
+ * accent are not É to it. A run is matched only from its first, so a long one is read once.
  */
-const IGNORED_SOFT_HYPHENS = /\u00ad+(?![\u00ad\p{M}\u1100-\u11ff\ua960-\ua97f\ud7b0-\ud7ff])/gu;
+const IGNORED_SOFT_HYPHENS =
+  /(?<!\u00ad)\u00ad+(?![\u00ad\p{M}\u1100-\u11ff\ua960-\ua97f\ud7b0-\ud7ff])/gu;
 
 /**
  * The form of a layer name that the leading CAD app looks layers up by. Two names with the

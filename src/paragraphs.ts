@@ -2202,7 +2202,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         x += item.face.advances[index]! * item.along;
 
         // A pair of surrogates is one character.
-        if (code >= 0xd800 && code <= 0xdbff && drawn.charCodeAt(c + 1) >= 0xdc00) c++;
+        if (code >= 0xd800 && code <= 0xdbff && (drawn.charCodeAt(c + 1) & 0xfc00) === 0xdc00) c++;
       }
 
       flush(drawn.length);

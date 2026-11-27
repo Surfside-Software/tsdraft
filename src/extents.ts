@@ -1036,7 +1036,7 @@ export function boxer(
     for (const item of filled(list)) {
       if (over) break;
 
-      if (item.kind === "insert") continue;
+      if (!isRecord(item) || item.kind === "insert") continue;
       const layer = item.layer;
       const hidden = layer === "0" ? held.hidden : isHidden(layerOf(layer, held.inside));
 
@@ -1061,7 +1061,10 @@ export function boxer(
     let found = insertLists.get(list);
 
     if (!found) {
-      const inserts = filled(list).filter((item): item is Insert => item.kind === "insert");
+      const inserts = filled(list).filter(
+        (item): item is Insert => isRecord(item) && item.kind === "insert" && isString(item.block),
+      );
+
       insertLists.set(list, (found = { inserts, by: held.held, place }));
     }
 

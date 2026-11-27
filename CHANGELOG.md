@@ -63,6 +63,15 @@
   gradient without every attribute `toSVG` writes, where it drew them as 0, 16 or a default.
 - `lint` and `toSVG` count the work of boxing the blocks of tables in referenced drawings against
   their limits, which each such drawing had multiplied.
+- `splinePoint`, `splineBox`, `clamped` and the other spline functions throw a `RangeError` for a
+  spline `lint` refuses for its degree or its lists, in place of a crash or a run without end, and
+  `fitSpline` takes a tangent of no length as none. `controlSpline()` refuses a degree past
+  `SPLINE_DEGREE_MOST` before it makes knots for it.
+- `toSVG` draws nothing for an entity of a block that is no object, an insert that names its block
+  with no string, and a paragraph attribute of an insert of scale 0, where it threw or wrote NaN.
+- A refused insert keeps none of the handles of its attributes, so the same call can be made again,
+  and a refused `titleBlock()` leaves no xref. A long run of soft hyphens in a name no longer slows
+  `lint` down, and a lone surrogate in a justified paragraph no longer shifts what follows it.
 - Agent feedback, off unless the user turns it on with `tsdraft feedback mode on`: `tsdraft feedback`
   and a `feedback` tool of `tsdraft mcp` let an agent report where tsdraft got in its way, as a kind
   and a subject from lists, with three short texts in its own words. Only the report's id, kind,

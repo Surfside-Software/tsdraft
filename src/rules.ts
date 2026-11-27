@@ -22,7 +22,7 @@ import type {
   Rgb,
   Units,
 } from "./drawing.ts";
-import { clamped, fitSpline, type FittedSpline } from "./curves.ts";
+import { clamped, fitSpline, SPLINE_DEGREE_MOST, type FittedSpline } from "./curves.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
 import {
@@ -2227,8 +2227,7 @@ export const R12_ONLY = {
   points: R12_POINTS,
 } as const;
 
-/** The highest degree of a spline by its control points. */
-export const SPLINE_DEGREE_MOST = 11;
+export { SPLINE_DEGREE_MOST };
 
 /** The most knots a spline holds, and so control points and fit points: a file holds each count as a 16-bit integer. */
 export const SPLINE_ITEMS = 32_767;

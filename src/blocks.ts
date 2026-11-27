@@ -341,7 +341,8 @@ export function placeable(definition: AttributeDefinition, insert: Insert): bool
     isNumber(definition.height) &&
     isNumber(definition.rotation) &&
     point(insert.at) &&
-    (insert.scale === undefined || point(insert.scale)) &&
+    (insert.scale === undefined ||
+      (point(insert.scale) && written(insert.scale[0]) !== 0 && written(insert.scale[1]) !== 0)) &&
     (insert.rotation === undefined || isNumber(insert.rotation))
   );
 }
@@ -459,6 +460,11 @@ export function blocksByKey(blocks: readonly Block[] | undefined): Map<string, B
  * other item draws nothing, where `lint` reports it.
  */
 export function isDefinition(item: unknown): item is AttributeDefinition {
+  return typeof item === "object" && item !== null;
+}
+
+/** True for an item of a list of entities that is an object, which a walk reads as an entity. */
+function isEntity(item: unknown): item is Entity {
   return typeof item === "object" && item !== null;
 }
 
@@ -1041,8 +1047,11 @@ export function eachDrawn(
     byBlockAlpha: number | undefined,
     byBlockHeld = false,
   ): boolean => {
-    if (isFrozen(layer)) return true;
-    const name = key(insert.block);
+    // An insert made by hand may name its block with a value of any type, and draws nothing.
+    const named: unknown = insert.block;
+
+    if (isFrozen(layer) || !isString(named)) return true;
+    const name = key(named);
     const block = within.get(name);
     const referenced = block ? undefined : (from ? from.xrefs : xrefs)?.get(name);
     const held = block ?? referenced;
@@ -1130,12 +1139,15 @@ export function eachDrawn(
     if (at.entities && !holds(at.items, at.next)) [at.entities, at.next] = [false, 0];
 
     if (at.entities) {
-      const item = at.items[at.next++]!;
+      const item: unknown = at.items[at.next++];
 
       if (!spend(1)) return false;
 
       // Each entity the insert's own block or drawing holds starts with its index.
       if (stack.length === 1) top?.(at.next - 1);
+
+      // An item that is no object, which `lint` reports, draws nothing.
+      if (!isEntity(item)) continue;
 
       if (item.kind !== "insert") {
         const matrix = at.matrix;

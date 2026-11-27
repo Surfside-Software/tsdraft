@@ -31,6 +31,8 @@ import { blocksByKey, eachDrawn, mapPoint } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
 import { leaderBlockKeys } from "../src/leaders.ts";
 import { isString } from "../src/guards.ts";
+import { layerAuditKey } from "../src/layers.ts";
+import { within } from "./time-limit.ts";
 import { dataOf, hasKey, ofKind, wrong, type Data, type Field } from "./values.ts";
 
 // Each `@ts-expect-error` below proves the compiler rejects the literal. The
@@ -559,6 +561,13 @@ test("lint refuses layer names that AUDIT would report as duplicates", () => {
   ] as const) {
     assert.deepEqual(duplicates([name, other]), [], name);
   }
+
+  // A long run of soft hyphens before an accent is read once, in a name of any length.
+  const run = `${softHyphen.repeat(200_000)}\u0301`;
+  assert.equal(
+    within(1000, () => layerAuditKey(run)),
+    run,
+  );
 
   // An entity on the other spelling is on no declared layer: the leading CAD app would add one for it.
   const strays = lint(drawing(["straße", "café"], ["STRASSE", "cafe\u0301", "strase"]));

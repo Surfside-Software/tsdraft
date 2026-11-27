@@ -1194,6 +1194,13 @@ test("a firm's border is an xref under the block of the fields, shared by every 
     [left.blocks?.map((b) => b.name), left.textStyles, left.xrefs, left.layouts![0]!.entities],
     [["FIELDS"], undefined, undefined, []],
   );
+  // And one refused for its border's id leaves no xref.
+  const border = createDrawing({ units: "ft", standard: firm });
+  border.layout("A-101", (sheet) => {
+    border.line([0, 0], [1, 1], { id: "A-101.border" });
+    refused(() => sheet.titleBlock(), "duplicate-id", /A-101\.border/);
+  });
+  assert.equal(border.build().xrefs, undefined);
   // A layout whose name is no id has inserts with none.
   const spaced = createDrawing({ units: "ft", standard: firm });
   spaced.layout("A 101", (sheet) => sheet.titleBlock());

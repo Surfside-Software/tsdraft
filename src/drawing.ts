@@ -264,6 +264,7 @@ import {
   type LEADER_VERTICAL_ATTACHMENTS,
   HATCH_LOOP_POINTS,
   controlSplineProblems,
+  SPLINE_DEGREE_MOST,
   ellipseProblems,
   fitSplineProblems,
   type ControlPoints,
@@ -3676,6 +3677,8 @@ export class DrawingBuilder<
   readonly #ids = new Map<string, string>();
   /** What took each handle that comes from a name: an id, or a description of anything else. */
   readonly #handles = new Map<string, { readonly id?: string; readonly what: string }>();
+  /** The handles an entity `#add` is making takes, for its own, until it is stored. */
+  #taking: string[] | undefined;
   /** The call that drew each entity, when calls are recorded. */
   readonly #calls: (HeldCall | undefined)[] | undefined;
   /** Keyed by `layerKey`: an insert finds its block as an entity finds its layer. */
@@ -5119,7 +5122,8 @@ export class DrawingBuilder<
       const closed = o.closed === true;
       const p = isNumber(degree) ? degree : 0;
 
-      if (Number.isInteger(p) && p >= 1 && given.length < p + 1)
+      // Before its knots are made from it.
+      if (!(Number.isInteger(p) && p >= 1 && p <= SPLINE_DEGREE_MOST && given.length >= p + 1))
         refuse(
           "geometry",
           capitalized(controlSplineProblems({ controlPoints: given, degree, knots: [] })[0]!),
@@ -7714,6 +7718,8 @@ export class DrawingBuilder<
       const previous = this.#current;
       this.#current = layer.name;
       let index: number | undefined;
+      const xrefKey = block.xref && layerKey(block.xref.name);
+      const newXref = xrefKey !== undefined && !this.#xrefs.has(xrefKey);
 
       try {
         if (block.xref) {
@@ -7736,6 +7742,14 @@ export class DrawingBuilder<
         for (const key of open.ids.splice(ids)) this.#ids.delete(key);
 
         for (const handle of open.handles.splice(handles)) this.#handles.delete(handle);
+
+        if (newXref && block.xref && this.#xrefs.delete(xrefKey)) {
+          const { name } = block.xref;
+          this.#blocksAudited.delete(layerAuditKey(name));
+
+          for (const handle of Object.values(blockHandles(name))) this.#handles.delete(handle);
+        }
+
         throw thrown;
       } finally {
         this.#current = previous;
@@ -8428,6 +8442,11 @@ export class DrawingBuilder<
   #add(method: Method, options: EntityGiven, make: () => Entity): this {
     const o = options;
     const id: unknown = o.id;
+    const held = (this.#open ?? this.#sheet)?.handles;
+    const heldLength = held?.length ?? 0;
+    const outer = this.#taking;
+    const taking: string[] = [];
+    this.#taking = taking;
 
     try {
       const key = id === undefined ? undefined : this.#idKey(id);
@@ -8460,6 +8479,11 @@ export class DrawingBuilder<
         this.#claim(validIdHandle(id), `the id ${JSON.stringify(id)}`, id);
       }
     } catch (thrown) {
+      // A refused entity holds no handle: those taken for it are free again.
+      held?.splice(heldLength);
+
+      for (const handle of taking) this.#handles.delete(handle);
+
       const within = this.#open
         ? { block: this.#open.name }
         : this.#sheet
@@ -8467,8 +8491,11 @@ export class DrawingBuilder<
           : {};
 
       throw located(thrown, method, isString(id) ? { ...within, id } : within);
+    } finally {
+      this.#taking = outer;
     }
 
+    outer?.push(...taking);
     (this.#open ?? this.#sheet ?? { calls: this.#calls }).calls?.push(holdCall(method));
 
     return this;
@@ -8511,15 +8538,15 @@ export class DrawingBuilder<
   }
 
   /** Takes a handle that comes from a name, and refuses one that something else has. */
-  #claim(
-    handle: string,
-    what: string,
-    id?: string,
-    held = (this.#open ?? this.#sheet)?.handles,
-  ): void {
+  #claim(handle: string, what: string, id?: string, held?: string[]): void {
     this.#free(handle, what, id);
     this.#handles.set(handle, id === undefined ? { what } : { id, what });
-    held?.push(handle);
+
+    if (held !== undefined) held.push(handle);
+    else {
+      (this.#open ?? this.#sheet)?.handles.push(handle);
+      this.#taking?.push(handle);
+    }
   }
 
   /** Refuses a handle that the drawing, or `pending`, already holds. */

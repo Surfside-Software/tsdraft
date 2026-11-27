@@ -143,6 +143,12 @@ test("the builder refuses what a drawing's blocks cannot be, at the call", () =>
     rule("undefined-attribute"),
   );
   assert.throws(() => d.insert("TREE", [0, 0], { attributes: { TAG: "a\nb" } }), rule("text"));
+  // A refused insert keeps none of the handles of its attributes, so it can be placed again.
+  assert.throws(
+    () => d.insert("TREE", [0, 0], wrong<{ id: "T1" }>({ id: "T1", linetype: "NOPE" })),
+    /NOPE/,
+  );
+  d.insert("TREE", [0, 0], { id: "T1" });
   // An id names one entity of the drawing, in a block or out of one.
   d.block("B", {}, () => d.line([0, 0], [1, 0], { id: "edge" }));
   assert.throws(() => d.line([0, 0], [1, 0], { id: "Edge" }), rule("duplicate-id"));
@@ -157,7 +163,7 @@ test("the builder refuses what a drawing's blocks cannot be, at the call", () =>
   // An attribute an insert would put past what the leading CAD app reads.
   d.block("FAR", {}, () => d.attribute("A", [1e99, 0]));
   assert.throws(() => d.insert("FAR", [0, 0], { scale: 1000000 }), /puts the attribute "A" at/);
-  assert.equal(d.build().entities.length, 1);
+  assert.equal(d.build().entities.length, 2);
   const far = { ...d.build(), entities: [insert("FAR", { scale: [1000000, 1000000] })] };
   assert.deepEqual(rules(far), ["geometry"]);
 });
@@ -597,6 +603,17 @@ test("an attribute of paragraph text of the wrong shape is drawn as none, and un
   assert.ok(lint(wide).some((w) => w.severity === "error"));
   toSVG(wide);
   inspectText(wide);
+  // An insert of a scale of 0, which `lint` refuses, places no paragraph.
+  assert.doesNotMatch(toSVG(withDefinition({}, { scale: [0, 2] })), /NaN|Infinity/);
+
+  // Nor does an entity of a block that is no object, or an insert that names its block with none.
+  const odder: Drawing = {
+    ...built,
+    blocks: [{ ...block, entities: [wrong(null), wrong({ ...dataOf(placed), block: null })] }],
+  };
+
+  assert.ok(lint(odder).some((w) => w.severity === "error"));
+  toSVG(odder);
   // An insert that scales its block unevenly makes a value the drawing does not hold, which pays
   // its length the first time it is laid out, as a long value laid out again does; inserts of
   // one scale share it, and a box kept is mapped alone.
