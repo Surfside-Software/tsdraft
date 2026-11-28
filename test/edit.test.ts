@@ -12,6 +12,7 @@ import {
   dxfStructure,
   editDrawing,
   editDXF,
+  editedRead,
   EditError,
   lintEdit,
   readDXF,
@@ -139,6 +140,12 @@ test("checkEdit names what is wrong with a value meant as an edit, and an Edit g
     ).join(),
     /layout "A" is not a list/,
   );
+
+  for (const additions of [
+    { model: [null], layouts: {}, definitions: {} },
+    { model: [], layouts: { A: [7] }, definitions: {} },
+  ])
+    assert.match(checkEdit(wrong({ ...data, additions })).join(), /an item that is no object/);
   // A list's own properties are data, never called.
   assert.match(
     checkEdit(
@@ -421,6 +428,159 @@ test("lintEdit refuses what the read tells it cannot make, and warns of a locked
   );
   const picture = read.blocks.find((b) => b.name.startsWith("*D"))!.entities[0]!.handle!;
   assert.deepEqual(rules({ kind: "erase", handles: [picture] }), ["error edit-part"]);
+  // A malformed edit past the limit is still an error.
+  const malformed = wrong<Edit>({ ...dataOf(editOf(bytes)), format: 9 });
+  assert.deepEqual(
+    lintEdit(malformed, read, { most: 0 }).map((x) => `${x.severity} ${x.rule}`),
+    ["error edit-limit"],
+  );
+});
+
+test("a dimension whose picture another names too is erased without the picture, and refused a move", async () => {
+  const d = createDrawing({ units: "ft" });
+  d.dimensionStyle({
+    name: "D",
+    textHeight: 0.1,
+    arrowSize: 0.1,
+    extensionOffset: 0,
+    extensionBeyond: 0,
+    textGap: 0,
+    precision: 0,
+  });
+  d.linearDimension([0, 0], [10, 0], [0, 2], { style: "D" });
+  d.linearDimension([0, 5], [10, 5], [0, 7], { style: "D" });
+  const text = toDXF(d.build());
+  const entities = text.indexOf("ENTITIES");
+  const names = [...text.slice(entities).matchAll(/\r\n2\r\n(\*D\d+)\r\n/g)];
+  assert.equal(names.length, 2);
+  const at = entities + names[1]!.index! + 5;
+
+  const bytes = bytesOf(
+    `${text.slice(0, at)}${names[0]![1]}${text.slice(at + names[1]![1]!.length)}`,
+  );
+
+  const read = await dxfEditor.read(bytes);
+  const [first, second] = read.model.entities!.filter((e) => e.kind === "dimension");
+  const picture = read.blocks.find((b) => b.name === names[0]![1])!;
+
+  const erase = editOf(bytes, { statements: [{ kind: "erase", handles: [first!.handle!] }] });
+  assert.deepEqual(lintEdit(erase, read), []);
+  const copy = editDXF(bytes, erase, read);
+  const back = await dxfEditor.read(copy);
+  assert.deepEqual(back.blocks.find((b) => b.name === picture.name)?.entities, picture.entities);
+  assert.ok(back.model.entities!.some((e) => e.handle === second!.handle));
+  assert.ok((await checkEditedCopy(dxfEditor, bytes, read, erase, copy)).every((c) => c.passed));
+
+  const move = editOf(bytes, {
+    statements: [{ kind: "move", handles: [first!.handle!], transform: { by: [1, 0] } }],
+  });
+
+  assert.deepEqual(
+    lintEdit(move, read).map((x) => `${x.severity} ${x.rule}`),
+    ["error edit-part"],
+  );
+  assert.throws(() => editDXF(bytes, move, read), EditError);
+
+  // The picture of a dimension in a block's definition is that dimension's too.
+  const one = await dxfEditor.read(bytesOf(text));
+  const dimension = one.model.entities!.find((e) => e.kind === "dimension")!;
+
+  const block = {
+    handle: "FFFF0",
+    name: "B",
+    base: [0, 0] as const,
+    anonymous: false,
+    attributeDefinitions: [],
+    entities: [dimension],
+    other: {},
+  };
+
+  const nested = {
+    ...one,
+    model: { ...one.model, entities: one.model.entities!.filter((e) => e !== dimension) },
+    blocks: [...one.blocks, block],
+  };
+
+  const own = nested.blocks.find(
+    (b) => b.handle === (dimension.kind === "dimension" && dimension.blockHandle),
+  )!;
+
+  const part = editOf(bytesOf(text), {
+    statements: [{ kind: "erase", handles: [own.entities[0]!.handle!] }],
+  });
+
+  assert.deepEqual(
+    lintEdit(part, nested).map((x) => `${x.severity} ${x.rule}`),
+    ["error edit-part"],
+  );
+});
+
+test("a block's definition is refused an edit where a read that leaves inserts out shows one", async () => {
+  const d = createDrawing({ units: "ft" });
+  d.block("ONCE", {}, () => d.circle([0, 0], 1));
+  d.insert("ONCE", [5, 5]);
+  d.insert("ONCE", [500, 500]);
+  const bytes = bytesOf(toDXF(d.build()));
+
+  const read = await readDXF(bytes, {
+    geometry: true,
+    only: {
+      areas: [
+        [
+          [0, 0],
+          [10, 10],
+        ],
+      ],
+    },
+  });
+
+  assert.equal(read.model.entities!.filter((e) => e.kind === "insert").length, 1);
+  const circle = read.blocks.find((b) => b.name === "ONCE")!.entities[0]!.handle!;
+  const edit = editOf(bytes, { statements: [{ kind: "erase", handles: [circle] }] });
+  assert.deepEqual(
+    lintEdit(edit, read).map((x) => `${x.severity} ${x.rule}`),
+    ["error edit-block"],
+  );
+
+  // A block of an xref, by its name in another case or one its file holds, is refused too.
+  const one = createDrawing({ units: "ft" });
+  one.block("ONCE", {}, () => one.circle([0, 0], 1));
+  one.insert("ONCE", [5, 5]);
+  const text = toDXF(one.build());
+
+  for (const [file, xrefs] of [
+    [text, [{ name: "once", path: "once.dwg", overlay: false }]],
+    [text.replaceAll("ONCE", "BASE|ONCE"), []],
+  ] as const) {
+    const b = bytesOf(file);
+    const r = { ...(await readDXF(b, { geometry: true })), xrefs };
+    const h = r.blocks.find((x) => x.name.endsWith("ONCE"))!.entities[0]!.handle!;
+    assert.match(
+      lintEdit(editOf(b, { statements: [{ kind: "erase", handles: [h] }] }), r)
+        .map((x) => `${x.severity} ${x.rule} ${x.message}`)
+        .join(),
+      /^error edit-block .*an xref/,
+    );
+  }
+});
+
+test("an erased text past where a census's list stops is taken out of its count", async () => {
+  const d = createDrawing({ units: "ft" });
+  d.text([0, 0], "A", { height: 1 });
+  d.text([0, 5], "B", { height: 1 });
+  const bytes = bytesOf(toDXF(d.build()));
+  const whole = await readDXF(bytes, { geometry: true });
+
+  const census = {
+    ...whole.model.census,
+    texts: whole.model.census.texts.slice(0, 1),
+    capped: true,
+  };
+
+  const read = { ...whole, model: { ...whole.model, census } };
+  const last = read.model.entities!.at(-1)!.handle!;
+  const edit = editOf(bytes, { statements: [{ kind: "erase", handles: [last] }] });
+  assert.equal(editedRead(read, edit).model.census.counts.texts, 1);
 });
 
 test("a move out of a read's area, a comment between a point's numbers and a scale of a height of its own", async () => {

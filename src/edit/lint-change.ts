@@ -64,6 +64,24 @@ function columnsProblem(
   return undefined;
 }
 
+/** The handles of the texts the read's fields show, made once for each read. */
+function fieldTexts(read: DrawingRead): ReadonlySet<string> {
+  let held = fieldTextsOf.get(read);
+
+  if (held === undefined) {
+    held = new Set(
+      read.fields.flatMap((f) =>
+        f.text.handle === undefined ? [] : [canonicalHandle(f.text.handle)],
+      ),
+    );
+    fieldTextsOf.set(read, held);
+  }
+
+  return held;
+}
+
+const fieldTextsOf = new WeakMap<DrawingRead, ReadonlySet<string>>();
+
 /** The problems of a change of the entity `e`, which `handleProblem` found nothing wrong with. */
 export function entityChangeProblems(
   read: DrawingRead,
@@ -103,11 +121,7 @@ export function entityChangeProblems(
     );
 
   const shows = (handle: string | undefined): boolean =>
-    handle !== undefined &&
-    read.fields.some(
-      (f) =>
-        f.text.handle !== undefined && canonicalHandle(f.text.handle) === canonicalHandle(handle),
-    );
+    handle !== undefined && fieldTexts(read).has(canonicalHandle(handle));
 
   for (const [tag, t] of Object.entries(c.attributes ?? {}))
     if (!isString(t) && e.kind === "insert")
@@ -173,15 +187,6 @@ export function layerChangeProblems(
       error(
         "edit-layer",
         `The file holds no linetype ${JSON.stringify(c.linetype)}: an edit adds no linetype yet`,
-      ),
-    );
-
-  if (layer.xref && c.linetype !== undefined)
-    // The bit a host's AcXRefLayerPropertyOverride sets for a linetype is not known yet.
-    out.push(
-      error(
-        "edit-layer",
-        `${layer.name} is an xref's layer, whose linetype a host's change is not made of yet`,
       ),
     );
 

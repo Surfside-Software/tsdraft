@@ -37,7 +37,7 @@ import {
   viewportChangeProblems,
 } from "./lint-change.ts";
 import { movedEntity, movedViewport } from "./moved.ts";
-import { editReach, indexRead, type ReadIndex } from "./reach.ts";
+import { editReach, indexRead, ownPicture, type ReadIndex } from "./reach.ts";
 import { stretchPlan, transformOf } from "./stretch.ts";
 import type { Applied } from "./transform.ts";
 
@@ -162,10 +162,23 @@ function moreOne(row: ReadLayerCensus | undefined, e: ReadEntity): ReadLayerCens
   };
 }
 
+/** The count of a census each kind of entity counts in. */
+const CENSUS_COUNTS = new Map<string, keyof ReadCensus["counts"]>([
+  ["text", "texts"],
+  ["mtext", "texts"],
+  ["dimension", "dimensions"],
+  ["radial-dimension", "dimensions"],
+  ["angular-dimension", "dimensions"],
+  ["ordinate-dimension", "dimensions"],
+  ["arc-length-dimension", "dimensions"],
+  ["insert", "inserts"],
+]);
+
 /** A space's census with its erased entities left out and its moved ones moved. */
 function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): ReadCensus {
   let layers: Record<string, ReadLayerCensus> | undefined;
   const moved = new Map<string, ReadEntity>();
+  const counts = { ...c.counts };
 
   for (const e of entities) {
     const what = takes(plan, e.handle);
@@ -191,6 +204,10 @@ function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): Rea
     }
 
     if (what === "erased") {
+      // Counted here, as a census's list may stop before the entity.
+      const count = CENSUS_COUNTS.get(e.kind);
+
+      if (count !== undefined) counts[count]--;
       layers ??= { ...c.layers };
       const row = layers[e.layer];
 
@@ -203,17 +220,10 @@ function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): Rea
   }
 
   if (layers === undefined && moved.size === 0) return c;
-  const counts = { ...c.counts };
-
-  const gone = (h: string | undefined, kind: keyof typeof counts): boolean => {
-    if (takes(plan, h) !== "erased") return false;
-    counts[kind]--;
-
-    return true;
-  };
+  const gone = (h: string | undefined): boolean => takes(plan, h) === "erased";
 
   const texts = c.texts
-    .filter((t) => !gone(t.handle, "texts"))
+    .filter((t) => !gone(t.handle))
     .map((t) => {
       const m = moved.get(key(t.handle) ?? "");
 
@@ -248,7 +258,7 @@ function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): Rea
     });
 
   const dimensions = c.dimensions
-    .filter((d) => !gone(d.handle, "dimensions"))
+    .filter((d) => !gone(d.handle))
     .map((d) => {
       const m = moved.get(key(d.handle) ?? "");
 
@@ -258,7 +268,7 @@ function census(c: ReadCensus, entities: readonly ReadEntity[], plan: Plan): Rea
     });
 
   const inserts = c.inserts
-    .filter((i) => !gone(i.handle, "inserts"))
+    .filter((i) => !gone(i.handle))
     .map((i) => {
       const m = moved.get(key(i.handle) ?? "");
 
@@ -599,13 +609,20 @@ function spacePlus<S extends ReadSpace>(
     more: readonly T[],
   ): T[] => inPlace(from, now, more, (x) => x.handle, placed);
 
+  // A census lists no more than its limit, as a reader of the edited file would.
+  const listed = <T extends { readonly handle?: string | undefined }>(
+    from: readonly T[],
+    now: readonly T[],
+    more: readonly T[],
+  ): T[] => byHandle(from, now, more).slice(0, CENSUS_LIMIT);
+
   return {
     ...s,
     census: {
       ...census,
-      texts: byHandle(was.census.texts, s.census.texts, added.census.texts),
-      dimensions: byHandle(was.census.dimensions, s.census.dimensions, added.census.dimensions),
-      inserts: byHandle(was.census.inserts, s.census.inserts, added.census.inserts),
+      texts: listed(was.census.texts, s.census.texts, added.census.texts),
+      dimensions: listed(was.census.dimensions, s.census.dimensions, added.census.dimensions),
+      inserts: listed(was.census.inserts, s.census.inserts, added.census.inserts),
     },
     ...(s.entities !== undefined && {
       entities: byHandle(was.entities ?? [], s.entities, added.entities),
@@ -768,11 +785,9 @@ function statementsRead(read: DrawingRead, edit: Edit): DrawingRead {
   for (const h of erased) {
     const at = index.byHandle.get(h);
 
-    if (at?.kind === "entity" && at.entity.kind !== "insert" && "blockHandle" in at.entity) {
-      const b = at.entity.blockHandle;
+    const own = at?.kind === "entity" ? ownPicture(index, at.entity) : undefined;
 
-      if (isString(b)) gonePictures.add(canonicalHandle(b));
-    }
+    if (own !== undefined) gonePictures.add(own);
   }
 
   // Each definition's count of what names it, less what the edit erases.

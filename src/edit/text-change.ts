@@ -294,9 +294,13 @@ export function changedParagraph(value: string, change: TextChange): string | { 
 
   const made = value.slice(0, start) + paragraphText(to) + value.slice(end);
 
-  return controls(made.replaceAll("\t", ""))
-    ? { problem: "the replacement would split a pair of surrogates" }
-    : made;
+  if (controls(made.replaceAll("\t", "")))
+    return { problem: "the replacement would split a pair of surrogates" };
+
+  // A `%%` code the replacement holds, or makes where it joins the rest, reads as what it draws.
+  return paragraphReads(made) === reads.slice(0, first) + to + reads.slice(last)
+    ? made
+    : { problem: "the paragraph would not read as the replacement: it would make a %% code" };
 }
 
 /** A text's placement as a change leaves it: its first point, its height and its width factor. */
@@ -356,9 +360,18 @@ export function placedText(
     if (unit.approximate || !(unit.advance > 0)) return undefined;
     const length = Math.hypot(text.alignAt[0] - text.stored[0], text.alignAt[1] - text.stored[1]);
 
-    return align === "aligned"
-      ? { stored: text.stored, height: length / (unit.advance * widthFactor), widthFactor }
-      : { stored: text.stored, height, widthFactor: length / (unit.advance * height) };
+    const made =
+      align === "aligned"
+        ? { stored: text.stored, height: length / (unit.advance * widthFactor), widthFactor }
+        : { stored: text.stored, height, widthFactor: length / (unit.advance * height) };
+
+    // A text whose two points are one, or of no height or width, has no size to take.
+    return made.height > 0 &&
+      Number.isFinite(made.height) &&
+      made.widthFactor > 0 &&
+      Number.isFinite(made.widthFactor)
+      ? made
+      : undefined;
   }
 
   // Middle, in an SHX font, is centered both ways as middle-center is; a TrueType font's sits by its ink.

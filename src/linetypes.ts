@@ -57,6 +57,18 @@ export const DOT: Linetype = {
   pattern: [0, -0.25],
 };
 
+const LIBRARY_LINETYPES: readonly Linetype[] = [DASHED, HIDDEN, CENTER, PHANTOM, DASHDOT, DOT];
+
+/**
+ * The library's linetype of a name, compared as the leading CAD app compares linetype names, or
+ * undefined. A layer or an entity that names one the drawing lacks defines it.
+ */
+export function libraryLinetype(name: string): Linetype | undefined {
+  const key = layerKey(name);
+
+  return LIBRARY_LINETYPES.find((l) => layerKey(l.name) === key);
+}
+
 /** The linetypes every drawing has, in the spelling the leading CAD app gives them. */
 export const BUILT_IN_LINETYPES = ["ByBlock", "ByLayer", "Continuous"] as const;
 

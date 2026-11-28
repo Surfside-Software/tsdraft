@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createDrawing, inspectText, measureText, type Drawing } from "../src/index.ts";
+import { wrong } from "./values.ts";
 
 /** Each warning as its rule, its text and what it names beside it. */
 const found = (drawing: Drawing, options?: Parameters<typeof inspectText>[1]) =>
@@ -267,4 +268,33 @@ test("texts in one outline of many points are checked up to a limit, and it says
   const { rules, ms } = timed(d.build());
   assert.ok(ms < 1000, `${ms} ms`);
   assert.deepEqual(rules, ["text-check-capped"]);
+});
+
+test("a text whose value is no string draws nothing, in a block or not", () => {
+  for (const value of [5, null, ["A"]]) {
+    const text = { kind: "text", layer: "0", at: [0, 0], height: 1, value, rotation: 0 };
+
+    const drawing = wrong<Drawing>({
+      format: 0,
+      units: "in",
+      dxf: "R2018",
+      layers: [{ name: "0", color: 7 }],
+      blocks: [{ name: "B", entities: [text] }],
+      entities: [text, { kind: "insert", layer: "0", block: "B", at: [0, 0] }],
+    });
+
+    assert.deepEqual(inspectText(drawing), []);
+  }
+});
+
+test("the cells of a table in an xref's model space count as its texts", () => {
+  const model = createDrawing({ units: "ft" });
+  model.tableStyle({ name: "S", textHeight: 1 });
+  model.table({ style: "S", at: [0, 0], columns: [10], rows: [["OVERLAPPING CELL"]] });
+  const sheet = createDrawing({ units: "ft" }).xref("MODEL", "model.dwg").insert("MODEL", [0, 0]);
+  sheet.text([0, -1.2], "OVERLAPPING TEXT", { height: 1 });
+  assert.deepEqual(
+    inspectText(sheet.build(), { xrefs: { MODEL: model.build() } }).map((w) => w.rule),
+    ["text-overlaps-text"],
+  );
 });

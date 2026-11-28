@@ -238,6 +238,7 @@ export function movedEntity(e: ReadEntity, t: Applied): ReadEntity {
         roots: e.roots.map((r) => root(r, t)),
         textAt: t.point(e.textAt),
         width: t.size(e.width),
+        ...(e.boxHeight !== undefined && { boxHeight: t.size(e.boxHeight) }),
         textHeight: t.size(e.textHeight),
         arrowSize: t.size(e.arrowSize),
         ...(e.block !== undefined && {

@@ -18,7 +18,7 @@ import {
   type Standard,
 } from "../src/index.ts";
 import { isString } from "../src/guards.ts";
-import { lintStandard } from "../src/standard/lint.ts";
+import { guarded, lintStandard } from "../src/standard/lint.ts";
 import { within } from "./time-limit.ts";
 import {
   copies,
@@ -534,6 +534,83 @@ test("the checks of heights stop at a limit, and say so", () => {
   const ms = performance.now() - started;
   assert.ok(ms < 1000, `${ms} ms`);
   assert.deepEqual(found, ["standard-check-capped"]);
+});
+
+test("layouts that share one list pay for it, so their checks stop at the limit", () => {
+  const lines = Array.from({ length: 20_000 }, (_, i): Entity => ({
+    kind: "line",
+    layer: titleBlock.layer,
+    from: [i, 0],
+    to: [i, 1],
+  }));
+
+  const shared = { ...layout, entities: [...layout.entities, ...lines] };
+  const out: Diagnostic[] = [];
+  within(5000, () =>
+    lintStandard(
+      { ...sheet, layouts: Array(3000).fill(shared) },
+      standard,
+      undefined,
+      "R2018",
+      out,
+    ),
+  );
+  assert.deepEqual(
+    out.map((d) => d.rule),
+    ["standard-check-capped"],
+  );
+});
+
+test("a text that inserts within inserts scale to nothing plots no height", () => {
+  const blocks: Block[] = [
+    {
+      name: "T0",
+      base: [0, 0],
+      entities: [{ kind: "text", layer: "0", at: [0, 0], height: 0.1, value: "TINY", rotation: 0 }],
+    },
+  ];
+
+  for (let i = 1; i <= 60; i++) {
+    blocks.push({
+      name: `T${i}`,
+      base: [0, 0],
+      entities: [
+        { kind: "insert", layer: "0", block: `T${i - 1}`, at: [0, 0], scale: [1e-6, 1e-6] },
+      ],
+    });
+  }
+
+  const tiny: Insert = { kind: "insert", layer: titleBlock.layer, block: "T60", at: [5, 5] };
+
+  const found = lint(
+    {
+      ...sheet,
+      blocks: [...sheet.blocks!, ...blocks],
+      layouts: [{ ...layout, entities: [...layout.entities, tiny] }],
+    },
+    { standard },
+  );
+
+  assert.match(
+    only(found, "height-below-standard")[0]?.message ?? "",
+    /"TINY" of its block plots 0 in tall/,
+  );
+});
+
+test("a check that throws on a value another rule reports is left out, and a bug is not", () => {
+  assert.equal(
+    guarded(() => {
+      throw new RangeError("a value another rule reports");
+    }),
+    undefined,
+  );
+  assert.throws(
+    () =>
+      guarded(() => {
+        throw new TypeError("a bug");
+      }),
+    TypeError,
+  );
 });
 
 test("the walk of an insert enters what can draw a text, and pays for each item and name", () => {

@@ -168,7 +168,8 @@ test("a file over the size limit is refused, kept or not, and a kept read that i
 });
 
 test("a reader whose deep file changes in place, with its version kept, reads again", async () => {
-  // An installed reader that names its file's encoding after what a module it imports says.
+  // An installed reader that names its file's encoding after what a module it imports says, or
+  // its WebAssembly file once that holds one.
   const folder = join(temp, "node_modules", "label-reader");
   mkdirSync(folder, { recursive: true });
   writeFileSync(
@@ -181,10 +182,13 @@ test("a reader whose deep file changes in place, with its version kept, reads ag
     }),
   );
   writeFileSync(join(folder, "label.js"), 'export const label = "utf-8";\n');
+  writeFileSync(join(folder, "label.wasm"), "");
   writeFileSync(
     join(folder, "read.js"),
     `import { createHash } from "node:crypto";
-import { label } from "./label.js";
+import { readFileSync } from "node:fs";
+import { label as named } from "./label.js";
+const label = readFileSync(new URL("./label.wasm", import.meta.url), "utf8") || named;
 export async function readDrawingFile(chunks) {
   const hash = createHash("sha256");
   let bytes = 0;
@@ -216,4 +220,33 @@ export async function readDrawingFile(chunks) {
   await new Promise((done) => setTimeout(done, 1_100));
   const again = await new ReadCache(cache).read(file, reader);
   assert.ok("read" in again && again.from === "file" && again.read.encoding === "ibm437");
+  writeFileSync(join(folder, "label.wasm"), "windows-1252");
+  await new Promise((done) => setTimeout(done, 1_100));
+  const rebuilt = await new ReadCache(cache).read(file, reader);
+  assert.ok("read" in rebuilt && rebuilt.read.encoding === "windows-1252");
+});
+
+test("a kept read is used as it is kept, and one that is not sound is read again at the next keep", async () => {
+  const folder = join(temp, "cache-g");
+  const file = join(temp, "g.dxf");
+  save(file, dxf("KEEP"));
+  const first = await new ReadCache(folder).read(file, null);
+  assert.ok("read" in first);
+  const kept = () => readdirSync(folder).filter((name) => name.endsWith(".json"));
+  const then = Date.now() / 1000 - 3600;
+
+  for (const name of kept()) utimesSync(join(folder, name), then, then);
+  const lazy = await new ReadCache(folder).keep(file, null);
+  assert.ok("read" in lazy);
+  // Touched, so that a prune before it is loaded does not take it as the oldest.
+  assert.ok(kept().some((name) => statSync(join(folder, name)).mtimeMs > then * 1000 + 60_000));
+
+  for (const name of kept())
+    writeFileSync(join(folder, name), JSON.stringify({ ...first.read, bytes: 1 }));
+  const unsound = await new ReadCache(folder).keep(file, null);
+  assert.ok("read" in unsound);
+  assert.throws(() => unsound.read(), /could not be loaded/);
+  const again = await new ReadCache(folder).keep(file, null);
+  assert.ok("read" in again);
+  assert.equal(JSON.stringify(again.read()), JSON.stringify(first.read));
 });

@@ -1,5 +1,163 @@
 # Changelog
 
+## Unreleased
+
+- A layer or an entity that names one of the library's linetypes, `DASHED`, `HIDDEN`, `CENTER`,
+  `PHANTOM`, `DASHDOT` or `DOT`, defines it when the drawing does not have it, as passing the
+  definition does: `d.layer("A", { linetype: "HIDDEN" })` draws and writes `HIDDEN`, where it threw
+  `undefined-linetype`. Any other linetype name written as a literal is a compile error: pass the
+  definition, as `linetype: FENCE`, which defines it on first use. A name known only when the code
+  runs is checked then, as before, and its error says to pass the definition. `Continuous`,
+  `ByLayer` and `ByBlock` stay as they were. Under a standard nothing changes. In an edit of a
+  firm's file a literal may still name the file's own linetypes, and a library name the file lacks
+  adds the library's definition. `KnownLinetype` is the type of the rule.
+- `toPNG(drawing, options)` from `tsdraft/png` draws a PNG on Node without the command: the
+  bytes `tsdraft render` writes of the same picture, with the same fonts, from `toSVG`'s options
+  and a `width`. It draws in a process of its own that does not keep a script from ending, and
+  rejects with a `PngUnavailable` without the renderer, a `RendererCrashed` for a picture the
+  renderer stops on and a `PngTooLarge` for one too tall to draw at any width. The main entry,
+  `tsdraft`, still runs in a browser and loads no renderer.
+- `render` and `dev` take the reader of a DWG only from the project they run in or from
+  `--reader`, never from the folder of the drawing: a drawing from elsewhere no longer chooses the
+  code that reads it. A DWG whose project names no reader is not read, and says so.
+- A file a drawing names, as an image, an underlay's PDF or a shape file, is read only when it is a
+  plain file of at most 1 GB: a pipe or a device beside a drawing no longer holds its build
+  forever. An image or an underlay without one draws as missing, with its warning.
+- A build that answered is drawn, though its process was ended at the time limit after it; it was
+  reported as a timeout. A PNG too narrow for its height to fit 16 million pixels at any width is
+  refused, with its `pngError`, where it was drawn far past the limit.
+- `tsdraft dev` keeps running when a folder of a file the drawing loads cannot be watched, as at
+  the system's limit of watches, and `/state.json` still finds a change to it.
+- `tsdraft mcp`: a cancelled `render`, or one a program left running when it ended, stops its
+  build, and the next render no longer waits for it; a waiting program process that died is no
+  longer handed the next `execute`, which then waited for its time limit; a brief lists errors
+  before warnings. A waiting build process whose answer came after its builder was closed, as
+  when `render` is given other options, no longer starts two more that never end.
+- `tsdraft shows` says `xrefsCapped` when an xref given lies more than 16 deep, as it does past 64
+  reads.
+- `tsdraft write` takes away no file outside its out folder that a record there names, and a copy
+  whose record cannot be written is taken away again and reported as not written.
+- The read cache tells a reader apart by its WebAssembly and native files too, and a kept read that
+  fails its check is removed, so the next build reads the file again.
+- A read refuses with a `ReadError` a file of more than `CENSUS_LIMIT` layers, linetypes, text
+  styles, dimension styles, block records, blocks, xrefs, spaces or layouts, where it used to
+  hold each however many the file made. Where layouts name one paper space, the first in the file
+  shows it, and each other shows nothing and is counted under `unread.malformed`, where each
+  copied the space's viewports again. An edit's record is found in a file that writes its handles
+  in lower case.
+- A dimension's text is cut at a `\X` only where no backslash escapes it, and a text of `<>`
+  alone reads as the measurement. A solid's edge whose parameters are a whole turn apart draws as
+  a whole circle or ellipse, where it drew as nothing.
+- The picture of a read finds an xref's read by its name in any case and under any name, such as
+  `__proto__`, counts a read given for an xref that is not a `DrawingRead`, and a solid's spline
+  edge of a degree over 11, as drawing nothing, and gives a viewport an id only from a
+  hexadecimal handle. `checkDrawingRead` names an entity's kind such as `constructor` as no
+  entity's kind.
+- `toDXF` writes `$HANDSEED` above every handle in a drawing whose only named objects are its
+  table styles, so a CAD program that adds objects to the file numbers none of them as a handle
+  the file already holds.
+- `toSVG` draws the block a leader holds in place of its note when the leader is in a drawing
+  given for an xref, and finds that block among the referenced drawing's blocks.
+- `toSVG` places a text inside a scaled or turned insert where the insert's lines put it, to the
+  digits a point is written with. A block in millimetres inserted into a drawing in feet moved a
+  text far from the block's origin by as much as twice its height.
+- `toSVG` keeps a layer name that holds `$$`, `$&` or `$'` as it is on a polyline with arcs or
+  widths, which it wrote changed.
+- `toSVG` skips a layer, linetype or style that is not an object with a name, which threw a
+  `TypeError`. A dashed arc of radius 0 draws no `NaN`, and a `NaN` in one entity no longer makes
+  the whole picture's `viewBox` `NaN`.
+- The picture of a read file keeps the gradients and clips an xref uses when its insert also
+  holds attributes.
+- `svgToPDF` refuses an empty number, a hexadecimal one and a negative `stroke-width`, and a
+  gradient without every attribute `toSVG` writes, where it drew them as 0, 16 or a default.
+- `lint` and `toSVG` count the work of boxing the blocks of tables in referenced drawings against
+  their limits, which each such drawing had multiplied.
+- `splinePoint`, `splineBox`, `clamped` and the other spline functions throw a `RangeError` for a
+  spline `lint` refuses for its degree or its lists, in place of a crash or a run without end, and
+  `fitSpline` takes a tangent of no length as none. `controlSpline()` refuses a degree past
+  `SPLINE_DEGREE_MOST` before it makes knots for it.
+- `toSVG` draws nothing for an entity of a block that is no object, an insert that names its block
+  with no string, and a paragraph attribute of an insert of scale 0, where it threw or wrote NaN.
+- A refused insert keeps none of the handles of its attributes, so the same call can be made again,
+  and a refused `titleBlock()` leaves no xref. A long run of soft hyphens in a name no longer slows
+  `lint` down, and a lone surrogate in a justified paragraph no longer shifts what follows it.
+- An edit's additions refuse a file whose `$HANDSEED` is missing, not a handle, or not above a
+  handle the file holds, so a new handle is never one the file has. The DXF writer reads every
+  record's handle for it, and writes the seed again when the edit also changes the header, as a
+  change of an xref's layer sets `$VISRETAIN`.
+- An erased dimension or table keeps its picture block where another record names that block too,
+  and a move of a dimension whose picture is not its alone is refused. The picture of a dimension
+  in a block's definition is that dimension's, as one in a space is.
+- An entity of a block's definition is refused an edit when the read leaves entities out and the
+  censuses do not show every insert of the block, and in a block of an xref named in another case
+  or with `|`.
+- A change that sets a color to ByLayer and adds a linetype now leaves the color out, and a
+  viewport's changed frozen layers are the ones it freezes after the edit: the first one it froze
+  was written back before.
+- The picture of an edit's changes draws what it adds, as `data-change="added"`, from
+  `editPreview`'s new `added`, which `changesPicture` takes.
+- A replacement in paragraph text that would read as a `%%` code, such as `45%%d`, is refused, and
+  an aligned or fit text whose two points are one takes no size from a change.
+- `markOf` gives a mark only for five strings of format 1 with a handle, and `recordAdditions`
+  leaves out an addition with no id or no handle, and gives each handle in capitals and with no
+  leading zero. A later edit takes each handle of an earlier one's record once, for the id its
+  mark holds.
+- The DXF writer refuses to write again a record the additions change that is not UTF-8, as a 2018
+  file holds its text, where it would have replaced the bytes.
+- `lintEdit` ends a list past its `most` with `edit-limit` for a malformed edit too, `checkEdit`
+  refuses an addition that is not an object, and the before and after check compares the header
+  of a copy whose edit sets `$VISRETAIN`, but for that value and the seed.
+- The edited read keeps a census's counts right when an erased entity is past where its list
+  stops, and a census list at its limit when additions join it. A dimension of the additions in
+  any kind is held to a file style's font as a linear one is.
+- `lint` judges a viewport's twist as written, so one such as 359.9999999, which a file holds as
+  a whole turn, is refused. A field nobody knows inside an object, such as a hatch's loop, is
+  reported as one at the top is, and the rest of the entity is still checked. A leader that takes
+  its block from a style with an error of its own gets no error for a missing note. A text style
+  or block of the wrong shape no longer makes every viewport "show none of the drawing". The
+  message for an unknown entity kind lists every kind.
+- Under a standard, `lint` holds a text that inserts within inserts scale to nothing to the least
+  height, and layouts that share one list pay for it, so the checks stop at their limit in place
+  of growing with each layout. A title block's text style is held against a role's `styleName`,
+  where one is given, rather than its id. A dimension style's `scaleNames` is spelled as its scales
+  are, so the case a key is written in no longer changes the standard's hash. A standard's
+  `$schema` names the later tsdraft it was written for only when it is a URL of the schema of
+  256 characters at most, with a version of digits and a short tag, and is read in a bounded time.
+- `inspectText` checks the cells of a table in an xref's model space, and passes over a text whose
+  value is no string, where it threw.
+
+- Agent feedback, off unless the user turns it on with `tsdraft feedback mode on`: `tsdraft feedback`
+  and a `feedback` tool of `tsdraft mcp` let an agent report where tsdraft got in its way, as a kind
+  and a subject from lists, with three short texts in its own words. Only the report's id, kind,
+  subject and tsdraft version are sent. The texts never leave the machine: they stay in the copy
+  of each report saved there, which `tsdraft feedback list` shows. A report is sent once, as it is
+  filed, with no retry, and the copy records whether it was sent, not sent and why, or failed.
+  `DO_NOT_TRACK`, `TSDRAFT_TELEMETRY=0` and CI stop all sending.
+- `tsdraft mcp` serves the command as an MCP server, for an agent whose harness speaks MCP. Its
+  `render` tool builds a drawing file as `tsdraft render` does and answers with a brief of the
+  build, the counts, the first diagnostics at the calls that made them and the pictures as
+  images, in place of the whole JSON, which for a set of sheets can pass a hundred thousand
+  characters. It rasterizes only the PNGs it attaches. Its `execute` tool runs a JavaScript
+  program over builds and read files in a process of its own, and answers with only what the
+  program returns.
+- An edit changes an xref layer's linetype in its host, as `e.layer("SURVEY|BOUNDARY", { linetype:
+  "SURVEY|PHANTOM2" })`, to a linetype the host holds. Both writers mark it as the host's override,
+  so a reload of the xref keeps it.
+- An edit's additions may use a text style of the file whose font tsdraft does not hold, such as a
+  firm's Baskerville Old Face, for a text justified left and a paragraph of one column, which the
+  leading CAD app lays out itself. What tsdraft would lay out from the font's widths is refused in
+  such a style: a justified text or attribute, a paragraph in columns, a multileader, a dimension
+  and a table. A file's style is now matched to the font it names in any spelling, such as
+  `ROMANS.SHX`, or `cour.ttf` with no family.
+- `e.change(handle, { boxHeight: 0 })` fits a multileader's note box to its text. A file can
+  store a box taller than its note, and the leading CAD app sizes the note's mask by that height,
+  so the mask can hide what lies below the note. 0 is what the app writes for a new note that does
+  not wrap. A multileader with no note, an annotative one, a note in columns and an entity of
+  another kind are refused. The picture draws the mask as tall as the note, so the change shows in
+  no picture.
+- A read multileader's note gives `boxHeight`, the height of its box as the file stores it, when
+  above 0.
+
 ## 0.6.0
 
 tsdraft edits a firm's own drawings, with no CAD program: an edit file erases, moves, stretches,

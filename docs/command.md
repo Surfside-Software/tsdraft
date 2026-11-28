@@ -42,7 +42,7 @@ every build sees the code as it is now. A build that runs longer than `--timeout
 
 ## Commands
 
-`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot] [--pdf]` builds once, runs `lint`,
+`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot] [--pdf] [--drawing-json]` builds once, runs `lint`,
 with the file's export `standard` when it has one,
 `inspectText` and, for a file that exports `intent`, `checkIntent`, writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the
 file, and prints one JSON object. With `--view`, it writes one rectangle of the drawing and
@@ -96,6 +96,41 @@ build that left out what `lint` refused, which `drawing.omitted` lists, is not p
 plot runs in a process of its own, one at a time, which ends at two minutes. `--pdf` does not go with `--view`
 or `--draw-no-plot`, and without it every PDF is `null`.
 
+With `--drawing-json`, `render` also writes the drawing itself, `<name>.drawing.json` in
+`outputs.drawingJson`: the default export of the drawing file as `toJSON` writes it, which
+`fromJSON` reads back as the same drawing. It is the drawing as data, without the code that built
+it, for a program that takes a drawing in and gives a file of another kind back, for storage, or
+for a check that two versions of a file still build the same drawing. It is the whole drawing,
+with `--view` too, and holds every path and every text the drawing holds: the names of its files,
+its notes and its title block's fields. `toJSON` writes canonical JSON, so the same drawing always
+gives the same bytes. The copy of tsdraft the drawing file imports writes it, as it checks and
+draws the drawing, and the file is written to a temporary name beside it and then renamed, so it
+is never found half written.
+
+The file is written only when it will read back as it is, and where it is read:
+
+- the build reported no error, and `lint` checked the whole drawing, with no `check-capped`;
+- every value of the drawing is plain data: no getter, no proxy, no field `Object.keys` leaves
+  out, no symbol key, no field of a list but its items, and no instance of a class, each of
+  which the JSON would hold as it read once, or not at all;
+- every file the drawing names, an image's, an underlay's, an xref's and a linetype's shape file,
+  whatever the copy of tsdraft calls the mark's shape, has a path from the drawing file's folder
+  that stays inside the project folder, the nearest one above with a `package.json`, or the
+  drawing file's own where there is none, both as written and through every link on the way; an
+  absolute path, a drive and a URL such as `file:` or `https:` are refused;
+- `fromJSON` of the drawing's copy of tsdraft reads the bytes back, and `toJSON` writes the
+  drawing it gives as the same bytes.
+
+Otherwise, and for a DXF, a DWG, an edit file and a build that failed, `outputs.drawingJson` is
+`null` and `outputs.drawingJsonError` says why. The exit code is the one the build gives, and 1
+when the file cannot be written. With the flag the command owns `<name>.drawing.json` in the out
+folder, `--out`'s too: a run that writes none removes one from an earlier run. Without the flag
+both fields are missing, and only the default `out/` folder loses an earlier run's file.
+
+Read the file with `fromJSON` of the version of tsdraft that wrote it, the one the drawing file
+imports, or of a later one that still reads its drawing format. Since 0.6.0, `fromJSON` refuses
+the older `shape` of a linetype's mark, which a mark now gives as `glyph`.
+
 `tsdraft dev <file> [--port <n>]` serves a live preview at `http://127.0.0.1:4610`, or the next
 free port when that one is taken. It rebuilds when you save the file or any file it imports,
 inside the project or not, including one it tried to import before you created it, a workspace
@@ -133,7 +168,7 @@ layout's paper alone; with neither, model space. With `--near`, only what comes 
 of the point, nearest first, with its `distance`. An xref is followed only where `--xref` gives
 its file, at any depth by the xref's name, and inside an xref only its attachments, as CAD
 programs load no overlay of a referenced drawing. At most 64 reads of xrefs are given, counting
-each place a file is attached at, and past them the JSON says `xrefsCapped`. The JSON gives the file, its reader, `from`, which is
+each place a file is attached at, and at most 16 deep, and past either the JSON says `xrefsCapped`. The JSON gives the file, its reader, `from`, which is
 `memory`, `disk` or `file` for where its read came from, the xrefs followed, `skipped` for an
 xref's file that could not be read, the `entities` and `capped`. It exits 0 with an answer, 1 for
 a file that could not be read or a layout the file does not have, and 64 for wrong usage.
@@ -141,6 +176,149 @@ a file that could not be read or a layout the file does not have, and 64 for wro
 ```sh
 tsdraft shows A-102.dwg --sheet A-102 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
 tsdraft shows A-102.dwg --sheet A-102 --near 12.5,8 --within 0.25 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+```
+
+## The MCP server
+
+`tsdraft mcp` serves the command as an [MCP](https://modelcontextprotocol.io) server on stdin and
+stdout, for an agent whose harness speaks MCP. A harness starts it as a command, from the
+project's folder:
+
+```sh
+claude mcp add tsdraft -- npx tsdraft mcp
+```
+
+It has two tools. Paths in either are from the folder it was started in.
+
+`render` builds a drawing file once, as `tsdraft render` does, and writes the same pictures to the
+same `out/` folder. It answers with a brief of the build as JSON, a few hundred to a few thousand
+characters where the whole JSON of a set of sheets can pass a hundred thousand, and with the first
+pictures as images, 2 unless `images` says another number from 0 to 8: the view, then an edit's
+pictures of changes, then each layout's sheet, then model space. Only those pictures get a PNG,
+and each other picture has its SVG alone, with a `png` of `null`, and in the whole BuildState a
+`pngError` that says it was not drawn. Its options
+are the flags of `render`: `view`, `layout`, `pdf`, `drawingJson`, `drawNoPlot`, `width`, `timeout` and `reader`,
+held to the same rules. The brief gives:
+
+| Field         | What it is                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------- |
+| `ok`, `code`  | Whether the file built, and the exit code `render` would give: 0, 2 for lint errors, 1       |
+| `error`       | Why the build failed, with `at`, the line to fix, as `file:line:column`                      |
+| `counts`      | `drawing.counts`, with `units` and `extents` beside it                                       |
+| `layouts`     | Each layout, its paper and its number of viewports                                           |
+| `rules`       | Every diagnostic, counted by its rule                                                        |
+| `diagnostics` | The first 12, errors first, each with `at`, the call that made it, `where` and `bounds`      |
+| `more`        | How many diagnostics `diagnostics` leaves out                                                |
+| `pictures`    | Each picture, what it `shows`, its `svg` and `png` paths, and `attached` when it is an image |
+| `pdf`, `log`  | The set's PDF, with `pdf`, and the end of what the drawing file printed                      |
+| `drawingJson` | The drawing's JSON, with `drawingJson`, or `drawingJsonError`, why it was not written        |
+
+`execute` runs a JavaScript program, the body of an async function, in a process of its own, and
+answers with only what the program returns: a build of a whole set never passes through the
+agent's context unless the program returns it. The program has `render(file, options)`, which
+builds as the tool does and gives the whole BuildState of [The JSON](#the-json), drawing a PNG of
+the first `pngs` pictures only, none unless it asks; `brief(state)`, the brief of a state `render` gave;
+`shows(file, options)`, the JSON of `tsdraft shows` with its flags as `sheet`, `layout`, `near`,
+`within`, `xrefs` and `reader`; `show(png)`, which attaches a PNG to the answer as an image, up to
+8; and `tsdraft`, the library. It answers `{"ok":true,"value":...,"logs":"..."}`, with what the
+program printed in `logs`, or `{"ok":false,"error":{"kind","message","line","column"}}`, whose
+`kind` is `SyntaxError`, `Uncaught`, `NotJSON`, `TooLarge`, `Timeout` or `Exit`. A value whose
+JSON is longer than 40,000 characters is refused, never cut, and the error says what it held. A
+program runs for 2 minutes unless `timeout` says otherwise, up to 10, and its process ends when it
+answers, so a timer it leaves does not outlive it, and no global of one program reaches the next.
+A program is no sandbox: it runs with the permissions of the user who started the server, as a
+drawing file does when it builds, so add the server only for an agent that may already run code
+there. A program that fails, like a build that fails, is answered with `isError` set, and a
+render that a program left waiting when it ended is not started.
+
+```js
+const s = await render("plan.ts", { pngs: 1 });
+show(s.outputs.layouts[0].png);
+return s.drawing.layouts.map((l) => ({ name: l.name, scales: l.viewports.map((v) => v.ratio) }));
+```
+
+Builds run one at a time. The server keeps a process waiting with the library loaded between
+calls, as `tsdraft dev` does, and ends with its input.
+
+While [agent feedback](#agent-feedback) is on, the server lists a third tool, `feedback`, and its
+instructions say when to call it.
+
+## Agent feedback
+
+Agents are tsdraft's main users, so tsdraft lets an agent tell its maintainer where tsdraft got
+in its way: a rule, message or diagnostic that was wrong or unclear, a doc that misled it, a
+missing capability, a bug, or a workaround it had to invent. It is **off** unless the user turns
+it on. When it is on, a report sends four fields, none of them the agent's text, and nothing about
+the user's firm, project or drawings ever leaves the machine.
+
+### What leaves the machine
+
+| Field     | What it is                                                                                                                                                                                     |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`      | A new random UUID for each report, so reports cannot be tied to a machine or to each other                                                                                                     |
+| `kind`    | `bug`, `confusing`, `missing_capability`, `wrong_docs` or `other`                                                                                                                              |
+| `subject` | A command (`render`, `dev`, `shows`, `write`, `mcp`, `feedback`), a tool (`execute`), a part of the library (`lint`, `toSVG`, `toDXF`, `standard`, `edit`, `read`, `measureText`) or `general` |
+| `tsdraft` | tsdraft's version as `major.minor.patch`, such as `0.6.0`, with any suffix such as `-beta.1` stripped; `unknown` unless it starts with three numbers of at most three digits each              |
+
+That is the whole payload, in every mode, and every payload has all four fields. One function makes
+it and checks it before it is posted: a field not on the list, a kind or subject not on its list,
+or an id tsdraft did not make is not sent. The id is made when the report is filed; nothing read
+from a saved copy is ever posted. It holds no text of the agent's, no install ID or other stable ID, and no runtime, operating
+system, client, machine or user name. A send carries no cookie, no authorization and no header
+that names the machine. The server that receives it sees the connection's IP address, as any
+server does.
+
+### What stays on the machine
+
+A report may also hold `expected`, `actual` and `workaround`, up to 300 characters each, in the
+agent's own words. They are never sent. They are kept, as written, in the report's copy on the
+machine, for the user to read, or for a maintainer to collect from their own machines. Any other
+field the agent gives is dropped.
+
+Every report is saved before anything is sent: `<id>.json` in `TSDRAFT_FEEDBACK_DIR`, else
+`$XDG_STATE_HOME/tsdraft/feedback`, else `~/Library/Application Support/tsdraft/feedback` on
+macOS, `%LOCALAPPDATA%\tsdraft\feedback` on Windows and `~/.local/state/tsdraft/feedback`
+elsewhere. The copy also notes when the report was made, whether it came from the command or the
+server, and what became of its send: `status` is `sent`, `not sent` with the `reason`, or `failed`
+with the error as the `reason`. `tsdraft feedback list` lists the copies, and `list --json` prints
+each one whole.
+
+### Modes
+
+| Mode  | What happens                                                                                                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `off` | The default. The `feedback` tool is not listed, the server's instructions do not mention it, nothing of it is loaded, and `tsdraft feedback` says how to turn it on and exits 1 |
+| `on`  | `tsdraft feedback` and the `feedback` tool save each report and send its four fields                                                                                            |
+
+Set the mode with `tsdraft feedback mode on` or `off`, which writes `feedback.json` in tsdraft's
+config folder: `$XDG_CONFIG_HOME/tsdraft`, else `~/Library/Application Support/tsdraft` on macOS,
+`%APPDATA%\tsdraft` on Windows and `~/.config/tsdraft` elsewhere. `TSDRAFT_FEEDBACK=on` or `off`
+wins over the file; any other value counts as off. The server reads the mode when it starts, and
+every report reads it again, with the opt-outs, just before it posts: feedback turned off while the
+server runs stops the send, and the report is kept with `not sent`.
+
+`DO_NOT_TRACK` set to anything but empty, `0` or `false`, `TSDRAFT_TELEMETRY=0`, and a CI
+environment, such as `CI` set to anything but empty, `false` or `0`, stop all sending: reports are
+still saved on the machine. A run of the command or a session of the server files at most 3
+reports. The machine files about 10 an hour: the times are kept in a small file in tsdraft's state
+folder in the user's home, which no variable moves, read and replaced with no lock, so many runs
+at the same moment may let a few more through.
+
+### Sending
+
+A report is saved, then sent at once as one JSON POST, once: there is no retry. tsdraft's own
+endpoint does not exist yet, so for now a report is kept and its receipt says `not sent` and why.
+For tests, `TSDRAFT_FEEDBACK_URL` may point the send at this machine alone: exactly
+`http://127.0.0.1` or `http://[::1]`, with a port and a path if wanted, and no user, password,
+query or fragment. `localhost`, `https` and every other URL are refused and nothing is sent. The
+send goes straight to that address, through no proxy, even one the environment names. It has 10
+seconds, follows no redirect, and carries no header that names the machine. A send that fails is
+recorded in the copy as `failed`, with the error.
+
+```sh
+tsdraft feedback mode on
+tsdraft feedback --kind confusing --subject lint --expected "..." --actual "..."
+tsdraft feedback list
 ```
 
 ## A closer look
@@ -166,7 +344,8 @@ the rectangle shows it, and a rectangle that misses every viewport shows the she
 entities alone. A layout the drawing does not have fails the build, with exit code 1.
 
 Give `--view` the `bounds` of a diagnostic, a little larger, to see what the diagnostic is
-about, and read a sheet's title block and notes with it. `tsdraft dev` has no such flag: its
+about, and read a sheet's title block and notes with it. `--view` limits only the pictures:
+with `--drawing-json` the run still writes the whole drawing as JSON. `tsdraft dev` has no such flag: its
 page pans and zooms.
 
 ## Images
@@ -418,12 +597,14 @@ both listed when either is drawn. The command looks for the files once, when it 
 ## Without the PNG renderer
 
 The PNG is drawn by `@resvg/resvg-js`, an optional dependency of tsdraft that npm installs by
-default. It is the package's only dependency, and the library never loads it. It is missing
-after an install with `--omit=optional`, and on a machine it has no build for. Then:
+default. It is the package's only dependency, and `tsdraft`, the library, never loads it: only
+the command and `toPNG` from `tsdraft/png` do. It is missing after an install with
+`--omit=optional`, and on a machine it has no build for. Then:
 
 - `tsdraft render` still writes the SVG and prints the JSON, with `"png": null` in `outputs`
   and the reason in `outputs.pngError`. `ok` stays true and the exit code is the one the drawing
   earns, 0 or 2, because the drawing built. It also prints the reason to stderr.
+- `toPNG` rejects with a `PngUnavailable` whose message is the reason.
 - `tsdraft dev` prints the reason to stderr when it starts, still serves the page, the state
   and the SVG, gives the same `outputs`, and answers `/drawing.png` with 501 and the reason.
 
@@ -448,6 +629,8 @@ A fault in the renderer ends that process and not the command:
   the reason to stderr.
 - `tsdraft dev` answers `/drawing.png` for that picture with 500 and the reason, and draws the
   next picture in a new process.
+- `toPNG` from `tsdraft/png` draws in such a process too, and rejects with a `RendererCrashed`
+  for that picture. The next call draws in a new process.
 
 When the renderer's process cannot start at all, each picture has a `pngError` that says so,
 and the rest is the same.

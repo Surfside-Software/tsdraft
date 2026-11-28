@@ -36,7 +36,7 @@ import { paperInfo, PAPERS, PLOT_STYLE_TABLES, type PaperInfo } from "../papers.
 import { pointStyleOf } from "../points.ts";
 import { imageFrame } from "../images.ts";
 import { leaderPicture } from "../leaders.ts";
-import { LEADER_ATTACHMENTS } from "../rules.ts";
+import { LEADER_ATTACHMENTS, SPLINE_DEGREE_MOST } from "../rules.ts";
 import {
   CELL_TEXT,
   IMAGE_FADE,
@@ -1193,6 +1193,11 @@ function drawingOf(
         else if (e.edgesUnread)
           count(approximate, `the edges of a ${e.kind} not read`, e.edgesUnread);
 
+        for (const edge of e.edges) {
+          if (edge.kind === "spline" && edge.degree > SPLINE_DEGREE_MOST)
+            count(notDrawn, `a spline edge of a degree over ${SPLINE_DEGREE_MOST}`);
+        }
+
         return edgesInPlan(e).map((edge) => (id === undefined || !top ? edge : { ...edge, id }));
     }
   };
@@ -1491,8 +1496,10 @@ function drawingOf(
   }));
 
   // An xref with no read given draws nothing where it is placed.
+  const givenNames = new Set(Object.keys(options.xrefs ?? {}).map(nameKey));
+
   for (const xref of read.xrefs) {
-    if ((!nested || !xref.overlay) && !Object.hasOwn(options.xrefs ?? {}, xref.name)) {
+    if ((!nested || !xref.overlay) && !givenNames.has(nameKey(xref.name))) {
       count(notDrawn, "an xref whose drawing is not given");
     }
   }
@@ -1502,7 +1509,7 @@ function drawingOf(
     string,
     | Drawing
     | { drawing: Drawing; xrefs?: XrefDrawings; images?: Readonly<Record<string, Uint8Array>> }
-  > = {};
+  > = Object.create(null);
 
   // An xref's overlays are not loaded where the xref is: only its attachments are drawn.
   const listed = new Set(
@@ -1532,6 +1539,11 @@ function drawingOf(
     if (made === undefined) {
       if (++walk.count > XREFS_MADE) {
         count(notDrawn, "an xref past the most a picture converts");
+        continue;
+      }
+
+      if (checkDrawingRead(of).length > 0) {
+        count(notDrawn, "an xref whose read is not a DrawingRead");
         continue;
       }
 
@@ -1754,7 +1766,7 @@ function viewportOf(
   const twist = ((v.twist % 360) + 360) % 360;
 
   return {
-    ...(v.handle !== undefined && { id: `vp${v.handle}` }),
+    ...(handleOf(v.handle) !== undefined && { id: `vp${v.handle}` }),
     layer: drawnName(v.layer),
     corner: [v.center[0] - v.width / 2, v.center[1] - v.height / 2],
     width: v.width,

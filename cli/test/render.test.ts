@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -18,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { deflateSync } from "node:zlib";
 import { after, test } from "node:test";
 import { inScratch } from "./scratch.ts";
-import { BUILT_IN_STANDARD, pdfFace, toDXF } from "tsdraft";
+import { BUILT_IN_STANDARD, fromJSON, pdfFace, toDXF } from "tsdraft";
 import { faces } from "../src/fonts.ts";
 import type { BuildState } from "../src/state.ts";
 
@@ -575,6 +576,29 @@ test("the pictures draw an attachment inside a drawing the file gives with its x
   assert.doesNotMatch(readFileSync(broken.state.outputs.svg!, "utf8"), /DETAIL\|/);
 });
 
+test("a build that answered is drawn, though its process never ends on its own", () =>
+  inScratch((dir) => {
+    // Once its answer has left, the drawing holds its process in a loop.
+    writeFileSync(
+      join(dir, "held.ts"),
+      `import { createDrawing } from "tsdraft";
+const send = process.send!.bind(process);
+process.send = ((message: { type?: string }, callback?: () => void) =>
+  send(message, () => {
+    if (message.type === "done") for (;;);
+    callback?.();
+  })) as typeof process.send;
+const d = createDrawing({ units: "ft" });
+d.line([0, 0], [10, 0]);
+export default d.build();
+`,
+    );
+
+    const { state, status } = render(join(dir, "held.ts"), "--out", dir, "--timeout", "5000");
+    assert.equal(status, 0, state.error?.message);
+    assert.equal(state.drawing?.counts.entities, 1);
+  }));
+
 test("a drawing file Node reads as CommonJS says how to make it a module", () => {
   const dir = realpathSync(tempDir());
   writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "commonjs" }));
@@ -760,6 +784,37 @@ test("dev rebuilds when a file outside the project that the drawing imports chan
       );
     });
   }));
+
+test(
+  "dev builds a drawing that imports a file from a folder it cannot watch",
+  { timeout: 60_000 },
+  (t) => {
+    if (process.getuid?.() === 0) return t.skip("root can watch any folder");
+
+    return inScratch(async (dir) => {
+      const locked = join(dir, "locked");
+      mkdirSync(locked);
+      writeFileSync(join(locked, "helper.ts"), "export const width = 10;\n");
+      const file = join(dir, "drawing.ts");
+      writeFileSync(
+        file,
+        'import { createDrawing } from "tsdraft";\nimport { width } from "./locked/helper.ts";\n' +
+          "const d = createDrawing();\nd.line([0, 0], [width, 0]);\nexport default d.build();\n",
+      );
+      // Its files can be read by their paths, and the folder can be neither listed nor watched.
+      chmodSync(locked, 0o111);
+
+      try {
+        await withDev(file, async (base) => {
+          const first = stateOf(await (await fetch(`${base}/state.json?after=0`)).text());
+          assert.deepEqual([first.ok, first.drawing?.extents.max], [true, [10, 0]]);
+        });
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+    });
+  },
+);
 
 test("dev rebuilds when a package link in node_modules is pointed at another folder", () =>
   inScratch(async (dir) => {
@@ -1557,6 +1612,187 @@ export const standard = ${standard};\n`,
     }
   }));
 
+test("render --drawing-json writes the drawing, which fromJSON reads back as the same drawing", async () => {
+  const out = tempDir();
+  const file = join(root, "../examples/site-plan.ts");
+  const { state, status } = render(file, "--out", out, "--width", "200", "--drawing-json");
+  assert.equal(status, 0);
+  assert.equal(state.outputs.drawingJson, join(out, "site-plan.drawing.json"));
+  assert.equal(state.outputs.drawingJsonError, null);
+  const { default: drawing } = await import(pathToFileURL(file).href);
+  assert.deepEqual(fromJSON(readFileSync(join(out, "site-plan.drawing.json"), "utf8")), drawing);
+});
+
+test("render --drawing-json writes no JSON for a build with an error, and removes an earlier one", () => {
+  const out = tempDir();
+  const plan = join(tempDir(), "plan.ts");
+
+  const drawing = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [{ kind: "line", layer: "NONE", from: [0, 0], to: [10, 4] }],
+  };
+
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  writeFileSync(join(out, "plan.drawing.json"), "stale");
+  const { state, status } = render(plan, "--out", out, "--width", "200", "--drawing-json");
+  assert.equal(status, 2);
+  assert.equal(state.outputs.drawingJson, null);
+  assert.equal(
+    state.outputs.drawingJsonError,
+    "The build reported errors, so the drawing is not written as JSON",
+  );
+  assert.equal(existsSync(join(out, "plan.drawing.json")), false);
+});
+
+test("render --drawing-json writes no JSON for a drawing that names a file by an absolute path", () => {
+  const out = tempDir();
+  const plan = join(tempDir(), "plan.ts");
+
+  const drawing = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7, linetype: "FENCE" }],
+    linetypes: [
+      {
+        name: "FENCE",
+        description: "Fence",
+        pattern: [1, -0.5],
+        marks: [{ after: 0, glyph: 133, file: "/srv/shapes/fence.shx", scale: 0.1 }],
+      },
+    ],
+    entities: [{ kind: "line", layer: "0", from: [0, 0], to: [10, 4] }],
+  };
+
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state, status } = render(plan, "--out", out, "--width", "200", "--drawing-json");
+  assert.equal(status, 0);
+  assert.equal(state.outputs.drawingJson, null);
+  assert.match(
+    state.outputs.drawingJsonError ?? "",
+    /"\/srv\/shapes\/fence\.shx" at linetypes\[0\]\.marks\[0\]\.file, an absolute path/,
+  );
+  assert.equal(existsSync(join(out, "plan.drawing.json")), false);
+});
+
+test("render --drawing-json refuses an absolute shape file a copy from before the SHX names gives as `shape`", () => {
+  const dir = realpathSync(tempDir());
+  writeFileSync(join(dir, "package.json"), '{ "type": "module" }\n');
+  const library = join(dir, "node_modules/tsdraft");
+  mkdirSync(library, { recursive: true });
+  writeFileSync(
+    join(library, "package.json"),
+    '{ "name": "tsdraft", "type": "module", "exports": "./index.js" }\n',
+  );
+  writeFileSync(
+    join(library, "index.js"),
+    `export const drawing = {
+  format: 0, units: "ft", dxf: "R2018", layers: [], entities: [],
+  linetypes: [{ name: "FENCE", description: "", pattern: [0.5, -0.25],
+    marks: [{ after: 0, shape: 132, file: "/srv/shapes/fence.shx", scale: 0.1 }] }],
+};
+export const createDrawing = () => {};
+export const toDXF = () => "";
+export const shapeFileKey = (file) => file.toLowerCase();
+export const lint = () => [];
+export const toSVG = () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>';
+export const toJSON = (drawing) => JSON.stringify(drawing);
+export const fromJSON = (json) => JSON.parse(json);
+`,
+  );
+  writeFileSync(
+    join(dir, "plan.ts"),
+    'import { drawing } from "tsdraft";\nexport default drawing;\n',
+  );
+  const { state, status } = render(join(dir, "plan.ts"), "--drawing-json");
+  assert.equal(status, 0);
+  assert.equal(state.outputs.drawingJson, null);
+  assert.match(
+    state.outputs.drawingJsonError ?? "",
+    /"\/srv\/shapes\/fence\.shx" at linetypes\[0\]\.marks\[0\]\.file, an absolute path/,
+  );
+});
+
+test("render --drawing-json into an out folder that is a file says why, and still prints the JSON", () => {
+  const out = join(tempDir(), "taken");
+  writeFileSync(out, "");
+  const file = join(root, "examples/lot.ts");
+  const { state, status } = render(file, "--out", out, "--width", "200", "--drawing-json");
+  assert.equal(status, 1);
+  assert.equal(state.outputs.drawingJson, null);
+  assert.match(
+    state.outputs.drawingJsonError ?? "",
+    /^Could not write .*lot\.drawing\.json: EEXIST/,
+  );
+});
+
+test("render --drawing-json refuses a path whose .. comes after a link out of the project", () => {
+  const dir = realpathSync(tempDir());
+  const project = join(dir, "project");
+  mkdirSync(join(dir, "outside/deeper"), { recursive: true });
+  mkdirSync(project);
+  writeFileSync(join(project, "package.json"), '{ "type": "module" }\n');
+  symlinkSync("../outside/deeper", join(project, "link"));
+
+  const drawing = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [],
+    xrefs: [{ name: "BASE", path: "link/../base.dwg" }],
+  };
+
+  writeFileSync(join(project, "plan.ts"), `export default ${JSON.stringify(drawing)};\n`);
+  const { state } = render(join(project, "plan.ts"), "--drawing-json");
+  assert.equal(state.outputs.drawingJson, null);
+  assert.match(
+    state.outputs.drawingJsonError ?? "",
+    /"link\/\.\.\/base\.dwg" at xrefs\[0\]\.path, which leads out of the project folder/,
+  );
+});
+
+test("render --drawing-json refuses a list with a key past its items", () => {
+  const plan = join(tempDir(), "plan.ts");
+
+  writeFileSync(
+    plan,
+    `const entities = [{ kind: "line", layer: "0", from: [0, 0], to: [10, 4] }];
+Object.assign(entities, { "4294967295": 1 });
+export default { format: 0, units: "ft", dxf: "R2018", layers: [{ name: "0", color: 7 }], entities };
+`,
+  );
+
+  const { state } = render(plan, "--drawing-json");
+  assert.equal(state.outputs.drawingJson, null);
+  assert.match(state.outputs.drawingJsonError ?? "", /the list entities with a field "4294967295"/);
+});
+
+test("render --drawing-json where the default out folder is a file says why, and still prints the JSON", () => {
+  const dir = tempDir();
+  writeFileSync(join(dir, "out"), "");
+
+  const drawing = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [{ kind: "line", layer: "0", from: [0, 0], to: [10, 4] }],
+  };
+
+  writeFileSync(join(dir, "plan.ts"), `export default ${JSON.stringify(drawing)};\n`);
+  const { state, status } = render(join(dir, "plan.ts"), "--drawing-json");
+  assert.equal(status, 1);
+  assert.equal(state.outputs.drawingJson, null);
+  assert.match(
+    state.outputs.drawingJsonError ?? "",
+    /^Could not write .*plan\.drawing\.json: EEXIST/,
+  );
+});
+
 test("render --view draws one rectangle of model space or of a layout, and nothing else", () => {
   const out = tempDir();
   const crowded = join(root, "test/fixtures/crowded.ts");
@@ -1701,6 +1937,25 @@ export default d.build();
   },
 );
 
+test("a plot that cannot be sent fails alone, and the next plot runs", async () => {
+  const { plot } = await import("../src/pdf.ts");
+  // A picture that throws as it is read, so the message that carries it cannot be made.
+  const unsendable: string[] = [];
+
+  Object.defineProperty(unsendable, 0, {
+    enumerable: true,
+    get: () => {
+      throw new Error("not readable");
+    },
+  });
+
+  const unsent = await plot(unsendable);
+  assert.match(unsent.error ?? "", /^The sheets could not be plotted: /);
+
+  const next = await plot([]);
+  assert.ok("error" in next);
+});
+
 test("dev plots the set and a sheet on request, and no picture that draws what does not plot", async () => {
   const sheet = join(root, "../examples/site-plan.ts");
   await withDev(sheet, async (base) => {
@@ -1811,6 +2066,42 @@ test("render reads each image's file beside its drawing, an xref's beside the xr
   const svg = readFileSync(state.outputs.svg!, "utf8");
   assert.match(svg, /data-pixels="2 2"/);
   assert.match(svg, /data-pixels="3 3"/);
+});
+
+test("render reads no file a drawing names that is a pipe", { timeout: 60_000 }, (t) => {
+  const dir = realpathSync(tempDir());
+
+  if (spawnSync("mkfifo", [join(dir, "held.pdf")]).status !== 0) return t.skip("no mkfifo");
+  spawnSync("mkfifo", [join(dir, "held.png")]);
+
+  const underlay = { kind: "underlay", layer: "0", path: "held.pdf", at: [0, 0], pageSize: [1, 1] };
+
+  const image = {
+    kind: "image",
+    layer: "0",
+    path: "held.png",
+    at: [0, 0],
+    width: 1,
+    height: 1,
+    pixels: [1, 1],
+  };
+
+  const drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [underlay, image],
+  };
+
+  const plan = join(dir, "plan.ts");
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state, status } = render(plan);
+  assert.equal(status, 0, state.error?.message);
+  assert.deepEqual(
+    state.diagnostics.map((d) => d.rule),
+    ["image", "underlay"],
+  );
 });
 
 test("render checks each underlay's page size against its PDF, and draws no page the PDF lacks", () => {

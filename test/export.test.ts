@@ -527,7 +527,7 @@ test("an entity's id gives its handle, whatever else the drawing holds", () => {
   const before = createDrawing({ units: "ft" });
   before.linetype(dotted).linetype(DASHED);
   before.textStyle({ name: "NOTES", font: "Arial" }).textStyle({ name: "TITLE", font: "txt.shx" });
-  before.layer("A-WALL", { color: 1, linetype: "DOTTED" }, () => {
+  before.layer("A-WALL", { color: 1, linetype: dotted }, () => {
     before.line([0, 0], [10, 0], { id: "wall-south" }).line([0, 9], [10, 9]);
   });
   before.layer("A-COLS", { color: 2, linetype: DASHED }, () => {
@@ -537,20 +537,18 @@ test("an entity's id gives its handle, whatever else the drawing holds", () => {
   // The same tables in another order with one more of each, and the entities moved, reordered
   // and joined by others.
   const after = createDrawing({ units: "ft" });
-  after
-    .linetype({ name: "GRID", pattern: [2, -1] })
-    .linetype(DASHED)
-    .linetype(dotted);
+  const grid = { name: "GRID", pattern: [2, -1] };
+  after.linetype(grid).linetype(DASHED).linetype(dotted);
   after.textStyle({ name: "TITLE", font: "txt.shx" }).textStyle({ name: "SMALL", font: "Arial" });
   after.textStyle({ name: "NOTES", font: "Arial" });
-  after.layer("A-GRID", { color: 5, linetype: "GRID" }, () => {
+  after.layer("A-GRID", { color: 5, linetype: grid }, () => {
     after.line([-5, -5], [30, -5]).text([0, 0], "new", { height: 1, id: "note" });
   });
   after.layer("A-COLS", { color: 2, linetype: DASHED }, () => {
     after.text([3, 3], "old", { height: 1, style: "TITLE", id: "title" });
     after.circle([25, 1], 3, { id: "column-A1" });
   });
-  after.layer("A-WALL", { color: 1, linetype: "DOTTED" }, () => {
+  after.layer("A-WALL", { color: 1, linetype: dotted }, () => {
     after.line([0, 9], [10, 9]).line([2, 1], [16, 1], { id: "Wall-South" });
   });
 

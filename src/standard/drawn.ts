@@ -369,10 +369,12 @@ export function unnamedDisciplineProblem(
 ): string {
   const disciplines = Object.keys(entry.byDiscipline ?? {});
 
-  const listed =
-    disciplines.length === 1
-      ? `the discipline ${disciplines[0]}`
-      : `the disciplines ${disciplines.slice(0, -1).join(", ")} and ${disciplines.at(-1)}`;
+  let listed = "byDiscipline";
+
+  if (disciplines.length === 1) listed = `the discipline ${disciplines[0]}`;
+  else if (disciplines.length > 1) {
+    listed = `the disciplines ${disciplines.slice(0, -1).join(", ")} and ${disciplines.at(-1)}`;
+  }
 
   return `${what} ${JSON.stringify(name)} has fields of its own in ${listed} of the standard, so a drawing that uses it names its discipline, as createDrawing({ standard, discipline })`;
 }

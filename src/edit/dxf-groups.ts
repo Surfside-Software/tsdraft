@@ -75,18 +75,27 @@ export interface Splice {
 
 const encoder = new TextEncoder();
 
-/** The record's bytes with each splice made; the splices are in the record and do not overlap. */
+/**
+ * The record's bytes with each splice made, in the record. Where text is added at the place a span
+ * starts that is replaced or left out, the text goes first; added texts at one place keep their
+ * order. Throws an `EditError` for two splices of the same bytes.
+ */
 export function spliced(
   bytes: Uint8Array,
   start: number,
   end: number,
   splices: readonly Splice[],
 ): Uint8Array {
-  const sorted = [...splices].sort((a, b) => a.from - b.from);
+  const sorted = [...splices].sort(
+    (a, b) => a.from - b.from || Number(a.to > a.from) - Number(b.to > b.from),
+  );
+
   const parts: Uint8Array[] = [];
   let at = start;
 
   for (const s of sorted) {
+    if (s.from < at || s.to < s.from || s.from < start || s.to > end)
+      throw new EditError(`two changes of the record overlap at byte ${s.from}`);
     parts.push(bytes.subarray(at, s.from));
 
     if (s.text !== "") parts.push(encoder.encode(s.text));

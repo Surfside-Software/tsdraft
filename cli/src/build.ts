@@ -75,11 +75,17 @@ export class Builder {
    */
   readonly #spares: Child[] = [];
   readonly #view: BuildRequest["view"];
+  readonly #drawingJson: boolean;
   /** The package that reads a DWG, as `--reader` names it. */
   readonly #reader: string | undefined;
   /** Whether an edit's pictures of changes are drawn with each build, or when asked for. */
   readonly #changesLater: boolean;
   #running: Child | undefined;
+  /**
+   * Set by `close`. A spare's answer or deadline can still come after it, and must start no
+   * spare, or the processes would keep the command from ending.
+   */
+  #closed = false;
   /**
    * The process that keeps the reads and the pictures of an edit's source, for the life of the
    * builder. It is given each edit as data and never loads a drawing file.
@@ -111,6 +117,8 @@ export class Builder {
     view?: BuildRequest["view"];
     /** The package that reads a DWG, by its name in the project or its folder. */
     reader?: string;
+    /** Writes the drawing of a drawing file as `toJSON` gives it, with each build. */
+    drawingJson?: boolean;
     /** Draws an edit's pictures of changes only when `changes` asks for them. */
     changesLater?: boolean;
   }) {
@@ -118,6 +126,7 @@ export class Builder {
     this.#changesLater = options.changesLater === true;
     this.#drawNoPlot = options.drawNoPlot === true;
     this.#view = options.view;
+    this.#drawingJson = options.drawingJson === true;
     this.#timeout = options.timeout;
     this.#warm = options.warm;
     this.#warmDeadline = options.warmDeadline ?? WARM_DEADLINE;
@@ -151,6 +160,7 @@ export class Builder {
             root,
             drawNoPlot: this.#drawNoPlot,
             view: this.#view,
+            ...(this.#drawingJson && { drawingJson: true }),
             ...(this.#reader !== undefined && { reader: this.#reader, cwd: process.cwd() }),
           },
           started,
@@ -159,7 +169,7 @@ export class Builder {
         );
 
         // Starting the next child takes time, so a child that is ready is sent the file first.
-        if (child.isReady) null;
+        if (child.isReady) await child.ready;
 
         // While a warmed spare builds, the next warms up with the same library, so that a save
         // that follows at once finds it warm. Not when the library has just changed: the
@@ -291,7 +301,7 @@ export class Builder {
   }
 
   #refill(): void {
-    while (this.#warm && this.#spares.length < SPARES) {
+    while (this.#warm && !this.#closed && this.#spares.length < SPARES) {
       const child = spawn();
       child.process.once("exit", () => {
         const at = this.#spares.indexOf(child);
@@ -414,6 +424,7 @@ export class Builder {
   }
 
   close(): void {
+    this.#closed = true;
     this.cancel();
     this.#previewer?.process.kill("SIGKILL");
     this.#previewer = undefined;
@@ -542,20 +553,22 @@ function run(
 
       if (!sent && !timedOut) return resolve("unreached");
 
-      const ending = timedOut
-        ? failure(
-            request.file,
-            "Timeout",
-            `The drawing file took longer than ${timeout} ms to build. Look for a loop that never ends`,
-            files,
-          )
-        : (result ??
-          failure(
-            request.file,
-            "Exit",
-            `The drawing file's process ended before it gave a drawing (${signal ?? `exit code ${code}`})`,
-            files,
-          ));
+      // A build that answered is its answer, though its process was ended after it.
+      const ending =
+        result ??
+        (timedOut
+          ? failure(
+              request.file,
+              "Timeout",
+              `The drawing file took longer than ${timeout} ms to build. Look for a loop that never ends`,
+              files,
+            )
+          : failure(
+              request.file,
+              "Exit",
+              `The drawing file's process ended before it gave a drawing (${signal ?? `exit code ${code}`})`,
+              files,
+            ));
 
       resolve({
         ...ending,

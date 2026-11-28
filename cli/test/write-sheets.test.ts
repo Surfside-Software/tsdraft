@@ -137,6 +137,23 @@ test("a write takes away only its own files' pictures, though another file's nam
     assert.equal(existsSync(kept!.pdf), true);
   }));
 
+test("a write takes away nothing outside its out folder, whatever its record names", () =>
+  inScratch(async (dir) => {
+    const { plan, tag } = await project(dir);
+    writeFileSync(join(dir, "rev-1.edit.ts"), editFile(plan, [], `e.erase("${tag}");`));
+    assert.equal(run(dir, "write", "rev-1.edit.ts").status, 0);
+    const victim = join(dir, "victim.png");
+    writeFileSync(victim, "a file of the user's");
+    const at = join(dir, "out/.tsdraft-write.json");
+    const record = JSON.parse(readFileSync(at, "utf8"));
+    const named = { sha256: sha256(readFileSync(victim)), sheet: join(dir, "plan.dxf") };
+    record.pictures = { ...record.pictures, "../victim.png": named, [victim]: named };
+    writeFileSync(at, JSON.stringify(record));
+    writeFileSync(join(dir, "rev-1.edit.ts"), editFile(plan, []));
+    assert.equal(run(dir, "write", "rev-1.edit.ts").status, 0);
+    assert.equal(existsSync(victim), true);
+  }));
+
 test("a write whose record cannot be written fails the sheets' check and says so", () =>
   inScratch(async (dir) => {
     const { plan, tag } = await project(dir);

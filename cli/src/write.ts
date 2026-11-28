@@ -20,7 +20,8 @@ import { fileURLToPath } from "node:url";
 import type { EditCheck, EditDiagnostic, EditSheet } from "tsdraft";
 import { isJsonObject, isString, type Json } from "./guards.ts";
 import { plot } from "./pdf.ts";
-import { pngUnavailable, RendererCrashed, toPNG } from "./png.ts";
+import { RendererCrashed } from "./png-errors.ts";
+import { pngUnavailable, toPNG } from "./png.ts";
 import { editorFor, ReaderRefusal, type Readers } from "./readers.ts";
 import { drawSheets, sheetStem } from "./sheets.ts";
 import type { WriteMessage } from "./write-child.ts";
@@ -374,10 +375,13 @@ function readRecord(out: string): Recorded {
     const copies = isJsonObject(value) ? value["copies"] : undefined;
     const pictures = isJsonObject(value) ? value["pictures"] : undefined;
 
+    // A path that leads out of the folder is no file of the write's, whatever the record says.
+    const within = (path: string) => !isAbsolute(path) && inside(resolve(out, path), out);
+
     for (const [path, sha] of Object.entries(isJsonObject(copies) ? copies : {})) {
       if (++n > MOST_RECORDED) return { copies: new Map(), pictures: new Map() };
 
-      if (isSha(sha)) record.copies.set(path, sha);
+      if (isSha(sha) && within(path)) record.copies.set(path, sha);
     }
 
     for (const [path, picture] of Object.entries(isJsonObject(pictures) ? pictures : {})) {
@@ -385,7 +389,9 @@ function readRecord(out: string): Recorded {
       const sha = isJsonObject(picture) ? picture["sha256"] : undefined;
       const sheet = isJsonObject(picture) ? picture["sheet"] : undefined;
 
-      if (isSha(sha) && isString(sheet)) record.pictures.set(path, { sha256: sha, sheet });
+      if (isSha(sha) && isString(sheet) && within(path)) {
+        record.pictures.set(path, { sha256: sha, sheet });
+      }
     }
   } catch {
     // No record, or one that does not read: no file there is the write's to replace.
@@ -735,8 +741,21 @@ export async function writeEdits(
           if (!check.passed) throw new Error("The written file failed the check sheets");
           p.guard();
           renameSync(p.temporary, p.copy);
-          record.copies.set(relative(out, p.copy), p.done.sha256);
-          writeRecord(out, record);
+          const key = relative(out, p.copy);
+          const before = record.copies.get(key);
+          record.copies.set(key, p.done.sha256);
+
+          try {
+            writeRecord(out, record);
+          } catch (error) {
+            // A copy the record does not hold is one no later write may replace: it goes.
+            rmSync(p.copy, { force: true });
+
+            if (before === undefined) record.copies.delete(key);
+            else record.copies.set(key, before);
+            throw error;
+          }
+
           results.push({ ...fields, written: true, ms: Date.now() - started });
         } catch (error) {
           rmSync(p.temporary, { force: true });

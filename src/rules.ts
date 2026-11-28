@@ -22,7 +22,7 @@ import type {
   Rgb,
   Units,
 } from "./drawing.ts";
-import { clamped, fitSpline, type FittedSpline } from "./curves.ts";
+import { clamped, fitSpline, SPLINE_DEGREE_MOST, type FittedSpline } from "./curves.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
 import {
@@ -494,6 +494,10 @@ const LAYER_LINETYPE =
 const BUILT_IN =
   "Continuous, ByLayer and ByBlock are in every drawing and cannot be defined. The leading CAD app keeps its own and drops the definition";
 
+const PASS_THE_DEFINITION = "Pass its definition, such as linetype: FENCE";
+
+const NAMED_LINETYPE = `A linetype named by a literal is Continuous, ByLayer, ByBlock or one of the library's DASHED, HIDDEN, CENTER, PHANTOM, DASHDOT and DOT. ${PASS_THE_DEFINITION}, for any other`;
+
 const PATTERN_COUNT =
   "A linetype pattern has 2 to 12 lengths, or none for a solid line. The leading CAD app's AUDIT reports a pattern of one length, and that app discards a drawing with a pattern of more than 12";
 
@@ -846,6 +850,34 @@ export type LayerLinetypeName<N extends string> = string extends N
   : Lowercase<N> extends "bylayer" | "byblock"
     ? typeof LAYER_LINETYPE
     : LinetypeName<N>;
+
+type LibraryName = "dashed" | "hidden" | "center" | "phantom" | "dashdot" | "dot";
+
+/** Whether a linetype name is well formed: as a layer's linetype when `Layer` is true. */
+export type FormedLinetypeName<N extends string, Layer extends boolean> = Layer extends true
+  ? LayerLinetypeName<N>
+  : LinetypeName<N>;
+
+/**
+ * Resolves to `N` when each name of it is well formed and is not a literal, or is a linetype
+ * every drawing has or one of the library's, which the builder defines on first use. A name that
+ * is badly formed resolves to the message of its shape, and any other literal to the message
+ * that says to pass the definition: the types cannot know which linetypes a drawing has, so a
+ * linetype of its own is passed as its definition. Each name of a union is checked alone.
+ */
+export type KnownLinetype<N extends string, Layer extends boolean = false> = string extends N
+  ? N
+  : N extends unknown
+    ? KnownName<N, FormedLinetypeName<N, Layer>>
+    : never;
+
+type KnownName<N extends string, Checked> = [Checked] extends [N]
+  ? {} extends Record<N, never>
+    ? N
+    : Lowercase<N> extends BuiltInName | LibraryName
+      ? N
+      : typeof NAMED_LINETYPE
+  : Checked;
 
 type Unsigned<S extends string> = S extends `-${infer A}` ? A : S;
 
@@ -2152,6 +2184,14 @@ export function undefinedLinetypeProblem(name: string): string {
   return `Linetype ${JSON.stringify(name)} is not defined, and the leading CAD app discards a drawing that uses a linetype it does not have`;
 }
 
+/**
+ * What the builder says of a name the drawing does not have and the library has no linetype of:
+ * one known only when the code runs, or in an edit a literal the file does not have.
+ */
+export function unknownLinetypeProblem(name: string): string {
+  return `${undefinedLinetypeProblem(name)}. ${PASS_THE_DEFINITION}, or define it with linetype() first`;
+}
+
 /** Returns what is wrong with the linetype a layer names, or undefined when it can be a layer's. */
 export function layerLinetypeProblem(name: string): string | undefined {
   const builtInName = builtInLinetype(name);
@@ -2227,8 +2267,7 @@ export const R12_ONLY = {
   points: R12_POINTS,
 } as const;
 
-/** The highest degree of a spline by its control points. */
-export const SPLINE_DEGREE_MOST = 11;
+export { SPLINE_DEGREE_MOST };
 
 /** The most knots a spline holds, and so control points and fit points: a file holds each count as a 16-bit integer. */
 export const SPLINE_ITEMS = 32_767;
@@ -4548,8 +4587,8 @@ export function viewportProblem(
   const { corner, width, height, center, ratio, frozenLayers, twist }: ViewportFields = viewport;
 
   if (twist !== undefined) {
-    // The DXF holds degrees and the DWG radians, which part past a turn.
-    if (!isNumber(twist) || !(Math.abs(twist) < 360)) {
+    // The DXF holds degrees and the DWG radians, which part past a turn. It is judged as written.
+    if (!isNumber(twist) || !(Math.abs(written(twist)) < 360)) {
       return "its twist must be a number of degrees more than -360 and less than 360";
     }
   }

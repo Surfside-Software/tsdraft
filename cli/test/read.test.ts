@@ -152,6 +152,22 @@ test("a dependency that resolves inside an input path is not a reader", () => {
   assert.deepEqual(findReaders({ cwd: dir, inputs: [readerA] }), { project: dir, packages: [] });
 });
 
+test("render never takes a reader from the folder of the drawing it was given", () => {
+  const planted = project(tempDir(), { "reader-a": readerA });
+  writeFileSync(join(planted, "plan.dwg"), Buffer.alloc(100, 7));
+  const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+  const out = tempDir();
+
+  const run = spawnSync(
+    process.execPath,
+    [cli, "render", join(planted, "plan.dwg"), "--out", out],
+    { cwd: tempDir(), encoding: "utf8", timeout: 120_000 },
+  );
+
+  assert.equal(run.status, 1, run.stderr);
+  assert.match(JSON.parse(run.stdout).error.message, /no installed reader reads plan\.dwg/);
+});
+
 const sha256 = (bytes: number) => createHash("sha256").update(Buffer.alloc(bytes, 7)).digest("hex");
 
 test("a read comes back checked, with the reader that read it", async () => {
@@ -396,4 +412,29 @@ test("the core reads a DXF in a process of its own", async () => {
   // The answer's maps have no prototype, as readDXF's own have.
   assert.equal(Object.getPrototypeOf(result.read.model.census.layers), null);
   assert.equal(result.read.model.census.layers["constructor"], undefined);
+});
+
+test("shows says when an xref given lies deeper than it follows", async () => {
+  const { shows } = await import("../src/shows.ts");
+  const dir = tempDir();
+  const xrefs: Record<string, string> = {};
+
+  // Each file attaches the next, 17 deep.
+  for (let i = 0; i <= 17; i++) {
+    const d = createDrawing({ units: "ft" });
+    d.line([0, 0], [1, 0]);
+
+    if (i < 17) {
+      const name = `X${i + 1}`;
+      d.xref(name, `x${i + 1}.dwg`, { attach: true }).insert(name, [0, 0]);
+    }
+
+    writeFileSync(join(dir, `x${i}.dxf`), toDXF(d.build()));
+
+    if (i > 0) xrefs[`X${i}`] = join(dir, `x${i}.dxf`);
+  }
+
+  const { json } = await shows({ file: join(dir, "x0.dxf"), xrefs });
+  // SAFETY: shows answers with an object, which has xrefsCapped when it stopped short.
+  assert.equal((json as { xrefsCapped?: boolean }).xrefsCapped, true);
 });

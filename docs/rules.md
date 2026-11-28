@@ -101,8 +101,13 @@ it would take `1e+100` for `1e+10` and report nothing.
 - Linetype names follow the rules of layer names, and are compared the same
   way: see [Linetype names](layer-names.md#linetype-names). A layer or an
   entity can only use a linetype the drawing defines, or `Continuous`, `ByLayer`
-  or `ByBlock`, because the leading CAD app discards a drawing that uses any other. Those
-  three cannot be defined, and a layer's linetype cannot be `ByLayer` or
+  or `ByBlock`, because the leading CAD app discards a drawing that uses any other. A name of one
+  of the library's linetypes, `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`, defines
+  it when the drawing does not have one of that name. Any other name written as a literal is a
+  compile error, since the types cannot know what a drawing defines: pass the definition, such as
+  `linetype: FENCE`, which defines it on first use. A name known only when the code runs is
+  checked then. Under a standard, a name is one of the standard's linetypes. `Continuous`,
+  `ByLayer` and `ByBlock` cannot be defined, and a layer's linetype cannot be `ByLayer` or
   `ByBlock`. A name that `AUDIT` would report as a duplicate of one of them,
   such as `Conti` + soft hyphen + `nuous`, cannot be defined either.
 - A layer or an entity given a linetype definition, not a name, must give the

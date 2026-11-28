@@ -13,15 +13,11 @@ import {
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
 import { dimensionPicture, pictureTexts, isDimension } from "./dimensions.ts";
-import { leaderPicture, leaderRepeats } from "./leaders.ts";
+import { leaderPicture } from "./leaders.ts";
+import { leaderRepeats } from "./leader-walks.ts";
 import { boxer, type Boxer } from "./extents.ts";
-import {
-  tableCost,
-  tableMeasures,
-  tableParagraph,
-  tablePicture,
-  type TablePicture,
-} from "./tables.ts";
+import { tableMeasures, tableParagraph, tablePicture, type TablePicture } from "./tables.ts";
+import { tableCost } from "./table-walks.ts";
 import type {
   Block,
   Drawing,
@@ -512,9 +508,10 @@ export function inspectWithin(
       }
     };
 
+    // A text whose value is no string, which `lint` refuses, draws nothing.
     const wanted = (e: Exclude<Entity, Insert>): boolean =>
       e.kind === "text" || e.kind === "paragraph"
-        ? !blank(e.value)
+        ? isString(e.value) && !blank(e.value)
         : isDimension(e) ||
           e.kind === "leader" ||
           e.kind === "table" ||
@@ -564,6 +561,7 @@ export function inspectWithin(
           // A text is read for each place it is drawn, blank or not, so it is paid for first.
           if (
             (drawn.kind === "text" || drawn.kind === "paragraph") &&
+            isString(drawn.value) &&
             !step(Math.floor(drawn.value.length / 32))
           ) {
             return;
@@ -754,8 +752,7 @@ function looked(
     switch (e.kind) {
       case "text":
       case "paragraph":
-        // A value that is not a string is left for the walk to read as it did.
-        return !isString(e.value) || !blank(e.value);
+        return isString(e.value) && !blank(e.value);
       case "polyline":
         return Boolean(e.closed) && Array.isArray(e.points) && e.points.length > 2;
       case "linear-dimension":
@@ -767,6 +764,7 @@ function looked(
       case "arc-length-dimension":
       case "ordinate-dimension":
       case "leader":
+      case "table":
         return true;
       default:
         return false;

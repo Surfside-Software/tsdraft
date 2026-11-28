@@ -13,9 +13,9 @@ import type { Edit } from "./model.ts";
 import { replacement, withReplacement, writesAdditions } from "./replaced.ts";
 import { editedRead } from "./edited.ts";
 import { lintEdit } from "./lint.ts";
-import { canonicalHandle } from "./model.ts";
+import { canonicalHandle, handleNumber } from "./model.ts";
 import { layerNamed } from "./changed.ts";
-import { editReach, indexRead } from "./reach.ts";
+import { editReach, indexRead, ownPicture } from "./reach.ts";
 import { dxfStructure, newDefects, type StructureReport } from "./structure.ts";
 
 /**
@@ -37,10 +37,11 @@ export interface FileEditor {
    */
   links(bytes: Uint8Array): ReadonlyMap<string, RecordLinks>;
   /**
-   * The file's header as text, with the handle seed left out, which additions alone change of it:
-   * the check holds a copy's header to the source's but for its seed.
+   * The file's header as text, with the handle seed left out, which additions alone change of it,
+   * and `$VISRETAIN` with it where `visretain` is true, which a change of an xref's layer sets: the
+   * check holds a copy's header to the source's but for those.
    */
-  headerWithoutSeed?(bytes: Uint8Array): string;
+  headerWithoutSeed?(bytes: Uint8Array, visretain?: boolean): string;
 }
 
 /** What a record names: its owner, and every handle it refers to, its owner's among them. */
@@ -152,7 +153,7 @@ export const dxfEditor: FileEditor = {
     ).read,
   edit: editDXF,
   structure: dxfStructure,
-  headerWithoutSeed(bytes) {
+  headerWithoutSeed(bytes, visretain = false) {
     const reader = new DxfDocumentReader();
     reader.push(bytes);
     const document = reader.end();
@@ -164,8 +165,13 @@ export const dxfEditor: FileEditor = {
         bytes.subarray(start, start + document.length(i)),
       );
 
-      if (/^\s*0\r?\n\s*SECTION\r?\n\s*2\r?\n\s*HEADER\r?\n/.test(text))
-        return text.replace(/(\n\s*9\r?\n\$HANDSEED\r?\n\s*5\r?\n)[^\r\n]*/, "$1");
+      if (/^\s*0\r?\n\s*SECTION\r?\n\s*2\r?\n\s*HEADER\r?\n/.test(text)) {
+        const seedless = text.replace(/(\n\s*9\r?\n\$HANDSEED\r?\n\s*5\r?\n)[^\r\n]*/, "$1");
+
+        return visretain
+          ? seedless.replace(/(\$VISRETAIN\r?\n\s*70\r?\n)[^\r\n]*/, "$1")
+          : seedless;
+      }
     }
 
     return "";
@@ -440,11 +446,9 @@ function allowed(read: DrawingRead, edit: Edit, links: ReadonlyMap<string, Recor
   for (const h of reach.erased.keys()) {
     const at = index.byHandle.get(h);
 
-    if (at?.kind === "entity" && at.entity.kind !== "insert" && "blockHandle" in at.entity) {
-      const b = at.entity.blockHandle;
+    const own = at?.kind === "entity" ? ownPicture(index, at.entity) : undefined;
 
-      if (isString(b)) gone.add(canonicalHandle(b));
-    }
+    if (own !== undefined) gone.add(own);
   }
 
   const children = new Map<string, string[]>();
@@ -628,11 +632,14 @@ export async function checkEditedCopy(
   };
 
   const adds = writesAdditions(read, edit);
-  const seed = read.header.handseed === undefined ? undefined : BigInt(`0x${read.header.handseed}`);
+  const seed = read.header.handseed === undefined ? undefined : handleNumber(read.header.handseed);
 
   // A handle the additions gave: from the source's seed on.
-  const fromSeed = (h: string): boolean =>
-    adds && seed !== undefined && /^[0-9A-F]{1,16}$/.test(h) && BigInt(`0x${h}`) >= seed;
+  const fromSeed = (h: string): boolean => {
+    const n = adds && seed !== undefined ? handleNumber(h) : undefined;
+
+    return n !== undefined && seed !== undefined && n >= seed;
+  };
 
   for (const [key, bytes] of was) {
     if (problems.length >= MOST_PROBLEMS) break;
@@ -671,12 +678,12 @@ export async function checkEditedCopy(
     }
   }
 
-  // The header but for its seed, unless a change of an xref's layer sets its `$VISRETAIN` too.
+  // The header but for its seed, and its `$VISRETAIN` where a change of an xref's layer sets it.
   if (
     adds &&
-    !may.visretain &&
     editor.headerWithoutSeed !== undefined &&
-    editor.headerWithoutSeed(source) !== editor.headerWithoutSeed(written)
+    editor.headerWithoutSeed(source, may.visretain) !==
+      editor.headerWithoutSeed(written, may.visretain)
   )
     problems.push("the header changed past its $HANDSEED, and the edit does not change it");
 

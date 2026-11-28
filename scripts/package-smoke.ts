@@ -93,6 +93,9 @@ try {
     "standard.schema.json",
     "cli/dist/cli.js",
     "cli/dist/worker.js",
+    "cli/dist/png-api.js",
+    "cli/dist/png-api.d.ts",
+    "cli/dist/png-errors.d.ts",
     "cli/assets/page.html",
     "cli/assets/mark.svg",
     "cli/assets/fonts/JetBrainsMono-Regular.ttf",
@@ -103,7 +106,7 @@ try {
 
   const stray = files.filter(
     (f) =>
-      !/^(LICENSE|README\.md|GUIDE\.md|CHANGELOG\.md|package\.json|standard(\.schema)?\.json|dist\/((standard|read|edit)\/)?[\w-]+\.(js|d\.ts)|cli\/dist\/[\w-]+\.js|cli\/assets\/.+)$/.test(
+      !/^(LICENSE|README\.md|GUIDE\.md|CHANGELOG\.md|package\.json|standard(\.schema)?\.json|dist\/((standard|read|edit)\/)?[\w-]+\.(js|d\.ts)|cli\/dist\/([\w-]+\.js|png-(api|errors)\.d\.ts)|cli\/assets\/.+)$/.test(
         f,
       ),
   );
@@ -143,6 +146,7 @@ try {
     [
       `import { BUILT_IN_STANDARD, createDrawing, defineStandard, lint, toDXF, toSVG, type Drawing } from "tsdraft";`,
       `import builtIn from "tsdraft/standard.json" with { type: "json" };`,
+      `import { PngUnavailable, toPNG } from "tsdraft/png";`,
       `const d: Drawing = createDrawing({ units: "ft" }).layer("A", { color: 1 }, () => {}).rect([0, 0], 10, 5).build();`,
       `if (lint(d).length > 0) throw new Error("unexpected lint problems");`,
       `// The published types must still reject a bad literal, and the code must still throw.`,
@@ -171,7 +175,15 @@ try {
       `const dxf: string = toDXF(d);`,
       `const svg: string = toSVG(d);`,
       `if (!dxf.endsWith("EOF\\r\\n") || !svg.startsWith("<svg")) throw new Error("unexpected output");`,
-      `console.log("consumer ok");`,
+      `// This consumer has no PNG renderer installed, so tsdraft/png says so with its own error.`,
+      `const png: Promise<Uint8Array> = toPNG(d, { width: 100 });`,
+      `png.then(`,
+      `  () => { throw new Error("a PNG was drawn with no renderer"); },`,
+      `  (error: unknown) => {`,
+      `    if (!(error instanceof PngUnavailable) || !/is not installed/.test(error.message)) throw error;`,
+      `    console.log("consumer ok");`,
+      `  },`,
+      `);`,
       ``,
     ].join("\n"),
   );
@@ -324,6 +336,29 @@ try {
   const png = readFileSync(drawn.outputs.png!);
   assert.equal(png.subarray(1, 4).toString(), "PNG");
   assert.equal(png.readUInt32BE(16), 800, "the PNG is as wide as asked");
+
+  // The library's PNG of the same drawing is the command's, and the script ends by itself.
+  writeFileSync(
+    join(full.dir, "picture.ts"),
+    [
+      `import { writeFileSync } from "node:fs";`,
+      `import { toPNG } from "tsdraft/png";`,
+      `import drawing from "./plan.ts";`,
+      `writeFileSync("picture.png", await toPNG(drawing, { width: 800 }));`,
+      ``,
+    ].join("\n"),
+  );
+
+  const pictured = spawnSync(process.execPath, ["picture.ts"], {
+    cwd: full.dir,
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+
+  assert.equal(pictured.signal, null, "a script that calls toPNG once ends by itself");
+  assert.equal(pictured.status, 0, pictured.stderr);
+  assert.deepEqual(readFileSync(join(full.dir, "picture.png")), png);
+
   await withDev(full, async (base, state) => {
     assert.equal(state.outputs.pngError, null);
     const live = await fetch(`${base}/drawing.png?width=400`);

@@ -58,7 +58,8 @@ export default editDrawing(
 
 A handle is the hexadecimal digits the read gives, in any case. `e.erase(...handles)` erases each
 entity with what it owns: an insert's attributes, a 2D polyline's vertices, a dimension's or a
-table's picture, its extension dictionary, an image's reactor and a text's fields. Each reference
+table's picture, kept where another record names its block too, its extension dictionary, an
+image's reactor and a text's fields. Each reference
 to what goes is taken out: from a group's list, which is kept when it is left empty, from a sort
 table, from another object's reactors, from a block's list of its inserts and from the list of
 fields. An `OLE2FRAME` a space's `unread` lists may be erased, and nothing else of a kind the
@@ -76,7 +77,8 @@ definition, in the block's coordinates, with the warning `edit-block-definition`
 statements reach, one the read does not hold or keeps outside `only`, a move of one out of what
 `only` keeps, `edit-only`, an attribute or a picture's
 entity named alone, an entity of a block inserted more than once, of an anonymous block or of an
-xref, a 3D solid, a region or a body, a turn or a scale of a dimension, since the leading CAD
+xref, by its name in any case or a name with `|`, or of a block whose inserts a read in part does not
+all list, a move of a dimension whose picture block is not its alone, a 3D solid, a region or a body, a turn or a scale of a dimension, since the leading CAD
 app draws its picture again, a scale of a table or of paragraph text whose codes set a height of its own, a turn or a
 scale of an old leader with its note,
 an old leader and its note apart, and a turn or a scale of a viewport. An entity on a locked layer is erased or moved with the
@@ -195,6 +197,13 @@ and every format its text does not replace.
   `%%` codes or a TrueType text justified Middle, a DXF keeps the start it holds, which a CAD
   program works out again when it reads the file, and a DWG, which stores the start a CAD
   program draws from, refuses the change.
+- `boxHeight: 0` fits a multileader's note box to its text. A file can store a box taller than
+  its note, and the leading CAD app sizes the note's mask by that height, so the mask can hide what
+  lies below. 0 is what the app writes for a new note that does not wrap, and the only height set.
+  The read gives the stored height as the note's `boxHeight`. The picture draws the mask as tall
+  as the note before and after, so the change shows in no picture and the changed sheets do not
+  list it. A multileader with no note, an annotative one, which holds a box for each scale, and a
+  note in columns are refused.
 - `attributes` changes an insert's attributes by tag, each as `text` is.
 - `layer`, `color` (1 to 255, 0 for ByBlock, 256 for ByLayer), `trueColor` (0xRRGGBB, with the
   nearest index beside it), `linetype` (one the file holds, `ByLayer` or `ByBlock`), `lineweight`
@@ -206,8 +215,8 @@ and every format its text does not replace.
 `color`, `trueColor`, `linetype` and `lineweight`. A host changes an xref's layer, `XREF|LAYER`,
 in its own record, marked as the host's override so a reload of the xref keeps it, and sets
 `$VISRETAIN` to 1, without which a host keeps no change of an xref's layer. A DWG host whose
-`VISRETAIN` is 0 holds no record of an xref's layers, and such a change is refused there. A
-change of an xref layer's linetype is not made yet.
+`VISRETAIN` is 0 holds no record of an xref's layers, and such a change is refused there. An
+xref layer's linetype is one the host holds, its own or the xref's, such as `SURVEY|PHANTOM2`.
 
 `e.viewport(handle, changes)` re-aims a viewport: `center` is the point of model space at its
 middle, `ratio` its scale in paper units to drawing units, `twist` its view turned in degrees.
@@ -252,6 +261,11 @@ are named `Standard`. Under a standard, a text role's and a leader style's `styl
 firm's style: in an edit of a file that holds it, the addition draws in it, and a new drawing that
 draws to a `styleName` of `Standard` is refused. Every addition names its layer.
 
+A style of the file whose font tsdraft does not hold, such as a firm's Baskerville Old Face, takes a
+text justified left and a paragraph of one column, which the leading CAD app lays out itself; a
+justified text or attribute, a paragraph in columns, a multileader, a dimension and a table in it
+are refused, since tsdraft would work out where they go from another font's widths.
+
 An entity takes its own `linetypeScale`, group 48, and a dimension its own `scale`, `DIMSCALE`,
 which the writers write as the dimension's override of its style's, the extended data `ACAD`,
 `DSTYLE`. A dimension style's `lineExtension`, `DIMDLE`, is how far a tick's dimension line runs
@@ -265,7 +279,8 @@ the edit's name, the addition's id, or `@model/3` for the fourth of model space 
 `@layout/Sheet1/3` for one of a layout, the handle it was written with, and a hash of what it held, `markHash`. The file keeps a record of each
 edit's additions, an `XRECORD` of the edit's name in the dictionary `TSDRAFT` of the named object
 dictionary: group 70 the mark's format, then each id, group 1, and its handle, group 2. Both readers
-give an entity's `mark` and the file's `edits`. An id is compared without regard to case, and one the edit gives may not start with `@`.
+give an entity's `mark`, only for five strings of format 1 with a handle, and the file's `edits`,
+each addition with a handle in capitals and with no leading zero. An id is compared without regard to case, and one the edit gives may not start with `@`.
 
 `markUnchanged(entity)` is true of an entity whose mark holds its own handle and whose hash matches
 what it holds: it is still the one the edit wrote. A copy a person makes with the leading CAD app's
@@ -291,7 +306,8 @@ An edit of another name leaves them alone, and may erase or move one by handle a
 entity. `replacement(read, edit)` says what an edit makes of an earlier one's additions.
 
 `lintEdit` refuses an addition the writers cannot make: additions that do not hold a drawing's shape
-or hold more than 100,000 items, a file with no `$HANDSEED`, a style of the file tsdraft does not
+or hold more than 100,000 items, a file with no `$HANDSEED` or one not above a handle the file
+holds, a style of the file tsdraft does not
 draw in, such as one whose arrowhead it does not draw, a linear or aligned dimension at an angle in a
 style that keeps its text level, a radial dimension whose text is placed along it in such a style,
 a justified text in the file's `Standard` when its font is not the one tsdraft measures

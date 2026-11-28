@@ -15,7 +15,8 @@ import {
   SHIPPED,
   type Face,
 } from "../src/fonts.ts";
-import { pngUnavailable, RendererCrashed, toPNG } from "../src/png.ts";
+import { RendererCrashed } from "../src/png-errors.ts";
+import { pngUnavailable, toPNG } from "../src/png.ts";
 import { decode, ink } from "./pixels.ts";
 
 /** A font's family and the height of its capitals, as a face of it has them. */
@@ -211,6 +212,17 @@ test(
         assert.ok(Math.abs(bottom - 2) <= 1.5 / SCALE, `${what}: bottom ${bottom}`);
         assert.ok(Math.abs(top - 3) <= 1.5 / SCALE, `${what}: top ${top}`);
       }
+    }
+  },
+);
+
+test(
+  "a picture that fits the most pixels at no width is refused",
+  { skip: pngUnavailable() ?? false },
+  async () => {
+    for (const box of ["0 0 1 100000000", "0 0 x 1"]) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${box}"/>`;
+      await assert.rejects(toPNG(svg, 1600), /within \d+ pixels at any width/);
     }
   },
 );

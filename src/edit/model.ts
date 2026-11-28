@@ -96,6 +96,11 @@ export interface EntityChanges {
   /** A text's height, and paragraph text's height and the width it wraps at, 0 for none. */
   readonly height?: number;
   readonly width?: number;
+  /**
+   * A multileader's note box, as tall as its text: the box the file stores can be taller, and the
+   * leading CAD app sizes the note's mask by it. Only 0, which fits the box to the text, is set.
+   */
+  readonly boxHeight?: 0;
   /** An insert's attributes, by tag. */
   readonly attributes?: Readonly<Record<string, TextChange>>;
   readonly layer?: string;
@@ -227,7 +232,7 @@ export interface EditBuilder {
 }
 
 /** The drawing builder an edit's additions are drawn with, over the file's definitions. */
-export type EditDrawing = DrawingBuilder<"R2018", number, undefined>;
+export type EditDrawing = DrawingBuilder<"R2018", number, undefined, string, string>;
 
 /** What `editDrawing` returns, which the command recognizes as an edit file's default export. */
 export interface EditFile {
@@ -588,6 +593,10 @@ export function statementCall(edit: Edit, index: number): CallSite | undefined {
 export const canonicalHandle = (handle: string): string =>
   handle.replace(/^0+(?=.)/, "").toUpperCase();
 
+/** A handle's number, or undefined for a value that is not 1 to 16 hexadecimal digits. */
+export const handleNumber = (handle: string): bigint | undefined =>
+  /^[0-9A-Fa-f]{1,16}$/.test(handle) ? BigInt(`0x${handle}`) : undefined;
+
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
@@ -930,7 +939,12 @@ export function checkEdit(value: unknown): string[] {
       ];
 
       // SAFETY: the guards above found `model` a list.
-      let held = (given!["model"] as unknown[]).length;
+      const model = given!["model"] as unknown[];
+      let held = model.length;
+
+      // An entity is an object; what it holds, the drawing's checks read.
+      if (held <= EDIT_LIMITS.additions && !everyOf(model, isRecord))
+        problems.push("the additions of model space hold an item that is no object");
 
       for (const { what, fields, may } of kinds) {
         let n = 0;
@@ -945,7 +959,14 @@ export function checkEdit(value: unknown): string[] {
 
           if (!Array.isArray(list) && !(may && list === undefined))
             problems.push(`${what} ${JSON.stringify(key.slice(0, 64))} is not a list`);
-          else if (Array.isArray(list)) held += list.length;
+          else if (Array.isArray(list)) {
+            held += list.length;
+
+            if (held <= EDIT_LIMITS.additions && !everyOf(list, isRecord))
+              problems.push(
+                `${what} ${JSON.stringify(key.slice(0, 64))} holds an item that is no object`,
+              );
+          }
         }
       }
 

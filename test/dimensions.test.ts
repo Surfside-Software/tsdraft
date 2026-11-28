@@ -6,6 +6,7 @@ import {
   dimensionPicture,
   dimensionPictureHandles,
   dimensionStyleHandle,
+  dimensionTextParts,
   DrawingError,
   FONT_METRICS,
   FONT_METRICS_RANGES,
@@ -1142,6 +1143,13 @@ test("a stacked fraction, words below the line and a text moved out are drawn an
   assert.deepEqual([first.text, first.textBelow], [undefined, "WINDOW HEAD HT."]);
   assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.textMove, 1);
   assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.arrowheadBlock, "_Oblique");
+});
+
+test("a dimension's text is cut at its first \\X that no backslash escapes, and <> alone is the measurement", () => {
+  assert.deepEqual(dimensionTextParts("<>"), {});
+  assert.deepEqual(dimensionTextParts("<>\\XBELOW"), { textBelow: "BELOW" });
+  assert.deepEqual(dimensionTextParts("DIR\\\\XREF <>"), { text: "DIR\\\\XREF <>" });
+  assert.deepEqual(dimensionTextParts("A\\\\\\XB"), { text: "A\\\\", textBelow: "B" });
 });
 
 test("a radius, a diameter and a jogged radius dimension are built, written and read back", async () => {

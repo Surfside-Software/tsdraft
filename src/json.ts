@@ -20,8 +20,8 @@ export function toJSON(drawing: Drawing): string {
 }
 
 /**
- * Writes a value as canonical JSON, as `toJSON` writes a drawing. Throws when the value holds
- * one JSON cannot, such as `NaN`, naming it as `what` does. `written` may give the canonical
+ * Writes a value as canonical JSON, as `toJSON` writes a drawing. Throws a `RangeError` when the
+ * value holds one JSON cannot, such as `NaN`, naming it as `what` does. `written` may give the canonical
  * JSON of an object already worked out, which is then used as it is.
  *
  * It also throws once the JSON would run past `most` characters, or it has read more than
@@ -111,7 +111,7 @@ export function canonical(
     }
 
     const shown = isNumber(value) ? String(value) : typeName(value);
-    throw new Error(`${what} with a value of ${shown} cannot be written as JSON`);
+    throw new RangeError(`${what} with a value of ${shown} cannot be written as JSON`);
   };
 
   write(value);

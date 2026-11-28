@@ -467,10 +467,18 @@ test("a viewport freezes layers of its own and turns its view, in the file and i
   assert.match(found({ frozenLayers: [7] }).join(), /frozenLayers must be a list/);
   assert.match(found({ twist: "30" }).join(), /twist must be a number of degrees/);
   assert.match(found({ twist: 360 }).join(), /less than 360/);
+  // A twist is judged as written, at 6 decimals.
+  assert.match(found({ twist: 359.9999999 }).join(), /less than 360/);
+  assert.match(found({ twist: -359.9999999 }).join(), /more than -360/);
   assert.deepEqual(found({ twist: -359.5 }), []);
   assert.deepEqual(found({ center: [1000, 1000] }), [
     `viewport: viewport #0 of layout "A": the viewport shows none of the drawing: nothing in model space reaches into the rectangle it shows, 7 by 10 about 1000, 1000, turned 30 degrees`,
   ]);
+  // Model space that cannot be measured holds no viewport to its box.
+  assert.deepEqual(
+    lint({ ...drawing, textStyles: wrong([null]) }).map((x) => x.rule),
+    ["text-style"],
+  );
 });
 
 test("a layout whose draw throws leaves the builder as it was", () => {

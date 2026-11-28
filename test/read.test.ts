@@ -621,6 +621,116 @@ test("readDXF reads the paper space of an R12 file as the layout Layout1", async
   assert.deepEqual(plain(JSON.stringify(read.unread.malformed)), {});
 });
 
+test("checkDrawingRead names an entity's kind that only an object's prototype holds", async () => {
+  const read = await readDXF(toDXF(sheet), { geometry: true });
+  const line = read.model.entities!.find((e) => e.kind === "line")!;
+  const odd = { ...read, model: { ...read.model, entities: [{ ...line, kind: "constructor" }] } };
+
+  assert.deepEqual(checkDrawingRead(odd), [
+    `model.entities[0] has kind "constructor", which is not an entity's kind`,
+  ]);
+});
+
+test("readDXF refuses a file of more layers, blocks or layouts than a read keeps", async () => {
+  const limits = { ...READ_LIMITS, census: 3 };
+
+  type Groups = readonly (readonly [number, string])[];
+
+  const kinds: [string, string, (i: number) => Groups][] = [
+    [
+      "layers",
+      "TABLES",
+      (i) => [
+        [0, "LAYER"],
+        [2, `L${i}`],
+      ],
+    ],
+    [
+      "blocks",
+      "BLOCKS",
+      (i) => [
+        [0, "BLOCK"],
+        [2, `B${i}`],
+        [0, "ENDBLK"],
+      ],
+    ],
+    [
+      "layouts",
+      "OBJECTS",
+      (i) => [
+        [0, "LAYOUT"],
+        [100, "AcDbLayout"],
+        [1, `S${i}`],
+      ],
+    ],
+  ];
+
+  for (const [what, name, record] of kinds) {
+    const of = (n: number) =>
+      readDXFWithin(
+        dxf([...section(name, ...Array.from({ length: n }, (_, i) => record(i))), [0, "EOF"]]),
+        {},
+        limits,
+      );
+
+    await assert.doesNotReject(of(3));
+    await assert.rejects(
+      of(4),
+      (error) => error instanceof ReadError && error.message.includes(`more than 3 ${what}`),
+    );
+  }
+});
+
+test("readDXF gives a paper space to the first layout that names it, and counts another", async () => {
+  const read = await readDXF(
+    dxf([
+      ...section(
+        "TABLES",
+        [
+          [0, "TABLE"],
+          [2, "BLOCK_RECORD"],
+        ],
+        [
+          [0, "BLOCK_RECORD"],
+          [5, "A"],
+          [2, "*Paper_Space"],
+        ],
+        [[0, "ENDTAB"]],
+      ),
+      ...section("ENTITIES", [
+        [0, "TEXT"],
+        [330, "A"],
+        [67, 1],
+        [8, "0"],
+        [40, 1],
+        [1, "X"],
+      ]),
+      ...section(
+        "OBJECTS",
+        ...[2, 1].map((tab) => [
+          [0, "LAYOUT"] as const,
+          [100, "AcDbLayout"] as const,
+          [1, `S${tab}`] as const,
+          [71, tab] as const,
+          [330, "A"] as const,
+        ]),
+      ),
+      [0, "EOF"],
+    ]),
+  );
+
+  assert.deepEqual(
+    read.layouts.map((l) => [l.name, l.census.counts.texts]),
+    [
+      ["S1", 0],
+      ["S2", 1],
+    ],
+  );
+  assert.deepEqual(plain(JSON.stringify(read.unread.malformed)), {
+    "LAYOUT of a paper space another layout has": 1,
+  });
+});
+
 test("readDXF finds an entity's owner outside its reactors", async () => {
   const read = await readDXF(
     dxf([

@@ -129,6 +129,11 @@ for, `render` still writes the SVG and exits as above, and the JSON has `"png": 
 reason in `pngError`. `npm i -D @resvg/resvg-js` adds it. Each entry of `outputs.layouts` has
 a `pngError` of its own: a picture the renderer stops on has no PNG, and its SVG is there.
 
+A script draws the same PNG without the command: `toPNG(drawing, { width })` from
+`tsdraft/png` takes `toSVG`'s options too, such as `layout`, and gives the PNG's bytes. It
+rejects with a `PngUnavailable` without the renderer, and with a `RendererCrashed` for a
+picture the renderer stops on.
+
 A text is as long in the pictures as it plots, in every font, and in the PNG its capitals are
 as tall. So a text that fits its space in the PNG fits it on the plot, and one that runs past
 a line there runs past it on paper. Only the shapes of the letters may differ: the PNG sets an
@@ -147,6 +152,27 @@ To hand over the sheets, run `npx tsdraft render plan.ts --pdf`: it writes the s
 the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet the PNG shows,
 with each TrueType font embedded from the file the PNG is set in. `outputs.layouts[].pdfFonts`
 names it, and says `Helvetica`, `Times-Roman` or `Courier` where the machine has no file.
+To hand over the drawing itself as data, add `--drawing-json`: it writes `plan.drawing.json`, which `fromJSON` reads back, at `outputs.drawingJson`, or says in `outputs.drawingJsonError` why not.
+
+### Through MCP
+
+Where the harness speaks MCP, `tsdraft mcp` gives the same loop as two tools, and saves the
+tokens a whole JSON costs. `render` answers with a brief, the errors and warnings at the calls
+that made them, and the pictures as images, so step 3 and step 4 are one call. `execute` runs a
+JavaScript program over a build or a read file and answers with only what it returns, such as
+`return (await render("plan.ts")).drawing.inserts.filter((i) => i.block === "DOOR").length`.
+[The MCP server](docs/command.md#the-mcp-server) has both.
+
+### Feedback
+
+When the user has turned on [agent feedback](docs/command.md#agent-feedback), the server lists a
+`feedback` tool, and `tsdraft feedback --kind … --subject …` does the same from the shell. Use it
+when tsdraft gets in your way: a rule, message or diagnostic that was wrong or unclear, a doc that
+misled you, a missing capability, a bug or a workaround you had to invent. Only the report's id,
+kind, subject and the tsdraft version are sent. `--expected`, `--actual` and `--workaround` stay
+in the copy saved on the machine and are never sent; write them in your own words all the same.
+The report is sent once as it is filed, and the receipt's `status` says `sent`, `not sent` or
+`failed`; nothing is tried again. Tell the user in one sentence, with the id.
 
 ## What the JSON holds
 
@@ -560,6 +586,11 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
   firm's linetype file, a linetype's `marks` draw its letters at each repeat of its pattern, and a
   polyline drawn with `linetypeGeneration: true` runs the pattern on past its vertices, so short
   runs between bends still get their letters. The letters' text style must be one of the drawing's.
+  Give a layer or an entity the linetype itself, `linetype: water`, not its name: a literal name
+  other than `Continuous`, `ByLayer`, `ByBlock` (an entity's only) and the library's `DASHED`,
+  `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT` is a compile error, except in an edit of a
+  firm's file, where a literal names the file's own linetypes, and a library name the file lacks
+  adds the library's definition.
 - A fence's circles or batt insulation's loops are shapes of the firm's shape file. Copy the file
   beside the drawing: the command reads it there, and `toSVG`, `toPDF` and `lint` take its bytes
   as `shx`. Without it the plot leaves a gap where each shape goes, and `lint` warns
@@ -724,16 +755,15 @@ installed beside tsdraft.
 - A paper outside the list in the section on layouts, a paper in portrait, and a page setup
   for another plotter.
 - The spacing of characters inside a paragraph, `\T`, and an overline, `\O`.
-- Ellipses and splines.
 - A color of a color book. A color of an entity is an index or a true color: see
   [docs/colors.md](docs/colors.md), and an entity's transparency [docs/transparency.md](docs/transparency.md).
 - DWG files. tsdraft writes DXF.
-- An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,
-  layouts and a census of what it draws, and with `geometry` what each space draws, as
-  [docs/reading.md](docs/reading.md) says, but tsdraft draws nothing from a read and does not read
-  DWG. An edit of a firm's file changes nothing yet: `npx tsdraft write rev-1.edit.ts` makes its
-  edited copy and the checks of every job, as [docs/editing.md](docs/editing.md) says, and the
-  copy is the file as it was.
+- An existing drawing as a background to draw a new drawing on. `readDXF` reads a DXF's tables,
+  blocks, layouts and a census of what it draws, and with `geometry` what each space draws, as
+  [docs/reading.md](docs/reading.md) says, but a new drawing takes nothing from a read, and
+  tsdraft does not read DWG. To change a firm's DXF, write an edit file instead:
+  `npx tsdraft write rev-1.edit.ts` writes an edited copy once its checks pass, and never writes
+  over the firm's file, as [docs/editing.md](docs/editing.md) says.
 
 When a drawing needs one of these, say so. Do not imitate it with something that will mislead
 whoever opens the file.

@@ -175,6 +175,16 @@ export function changedEntity(
     out = { ...out, width: c.width };
   }
 
+  if (c.boxHeight !== undefined) {
+    // A multileader holds a note, a block or neither, and the read gives a note's text.
+    if (out.kind !== "multileader" || out.block !== undefined || out.text === "")
+      return {
+        problem: `a note box is fitted only of a multileader with a note, and this is ${out.kind === "multileader" ? "one with none" : `a ${e.kind}`}`,
+      };
+    const { boxHeight: _, ...rest } = out;
+    out = rest;
+  }
+
   if (c.attributes !== undefined) {
     if (out.kind !== "insert")
       return { problem: `attributes are changed only of an insert, and this is a ${e.kind}` };

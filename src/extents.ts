@@ -39,8 +39,10 @@ import type {
 } from "./drawing.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { hasArcsOrWidths, mayCurve, polylineBox, PolylineMemo } from "./polylines.ts";
-import { leaderPicture, leaderRepeats } from "./leaders.ts";
-import { tableCost, tableBox, tableMeasures, tablePicture } from "./tables.ts";
+import { leaderPicture } from "./leaders.ts";
+import { leaderRepeats } from "./leader-walks.ts";
+import { tableBox, tableMeasures, tablePicture } from "./tables.ts";
+import { tableCost } from "./table-walks.ts";
 import { inStyle, measurer } from "./measure.ts";
 import {
   layoutDimensionText,
@@ -162,6 +164,8 @@ export interface Boxer {
   readonly capped: Entity | undefined;
   /** The work it has done against its limit. */
   readonly spent: number;
+  /** The blocks its walks have entered against `walking`. */
+  readonly walked: number;
   /**
    * The least a walk of an insert at the top of a space with `eachDrawn` spends: a unit for each
    * block it enters and one for each insert it reads there, which nothing it draws gives back.
@@ -273,15 +277,10 @@ export function boxer(
   ): Names => ({
     xrefs: attached,
     lists: { textStyles: text, blocks, dimensionStyles: dimensions, leaderStyles: leaders },
-    tableStyles: new Map(
-      // A style made by hand may be null, or have a name of another type.
-      filled(tables).flatMap((style) =>
-        isString(style?.name) ? [[layerKey(style.name), style] as const] : [],
-      ),
-    ),
-    textStyles: new Map(filled(text).map((t) => [layerKey(t.name), t])),
-    dimensionStyles: new Map(filled(dimensions).map((style) => [layerKey(style.name), style])),
-    leaderStyles: new Map(filled(leaders).map((style) => [layerKey(style.name), style])),
+    tableStyles: byName(tables),
+    textStyles: byName(text),
+    dimensionStyles: byName(dimensions),
+    leaderStyles: byName(leaders),
     blocks: new Map(filled(blocks).map((block) => [layerKey(block.name), block])),
   });
 
@@ -741,9 +740,12 @@ export function boxer(
     const k = key(name);
 
     if (held.known.has(k)) return held.known.get(k);
+    const [spent, walked] = [held.box.spent, held.box.walked];
     const found = held.box([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+    // Its work and its walks count against this boxer's limits too.
+    walks += held.box.walked - walked;
 
-    if (held.box.capped) stop();
+    if (held.box.capped || !spend(held.box.spent - spent) || walks > walking) stop();
     held.known.set(k, found);
 
     return found;
@@ -1036,7 +1038,7 @@ export function boxer(
     for (const item of filled(list)) {
       if (over) break;
 
-      if (item.kind === "insert") continue;
+      if (!isRecord(item) || item.kind === "insert") continue;
       const layer = item.layer;
       const hidden = layer === "0" ? held.hidden : isHidden(layerOf(layer, held.inside));
 
@@ -1061,7 +1063,10 @@ export function boxer(
     let found = insertLists.get(list);
 
     if (!found) {
-      const inserts = filled(list).filter((item): item is Insert => item.kind === "insert");
+      const inserts = filled(list).filter(
+        (item): item is Insert => isRecord(item) && item.kind === "insert" && isString(item.block),
+      );
+
       insertLists.set(list, (found = { inserts, by: held.held, place }));
     }
 
@@ -1444,6 +1449,7 @@ export function boxer(
 
   Object.defineProperty(fn, "capped", { get: () => capped });
   Object.defineProperty(fn, "spent", { get: () => work });
+  Object.defineProperty(fn, "walked", { get: () => walks });
   Object.defineProperty(fn, "walkCost", {
     value: (insert: Insert): number => {
       boxing = insert;
@@ -1459,11 +1465,27 @@ export function boxer(
   return fn as Boxer;
 }
 
+/**
+ * The items of a table by `layerKey` of their names, the last of a name. One that is no object
+ * with a name, which `lint` refuses, is one the drawing lacks.
+ */
+export function byName<T extends { readonly name: string }>(
+  list: readonly T[] | undefined,
+): Map<string, T> {
+  const out = new Map<string, T>();
+
+  for (const item of filled(list)) if (isString(item?.name)) out.set(layerKey(item.name), item);
+
+  return out;
+}
+
 function empty(): Bounds {
   return [Infinity, Infinity, -Infinity, -Infinity];
 }
 
 function include(into: Bounds, x: number, y: number): void {
+  // A NaN would hold every side it reaches at NaN, whatever else the box holds.
+  if (Number.isNaN(x) || Number.isNaN(y)) return;
   into[0] = Math.min(into[0], x);
   into[1] = Math.min(into[1], y);
   into[2] = Math.max(into[2], x);

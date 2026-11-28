@@ -86,6 +86,8 @@ export async function dev(
    * whether it is the picture of what an edit changes.
    */
   let pngs: {
+    /** The build it is of: a picture of changes drawn late may come after the next build. */
+    build: number;
     width: number;
     layout: string | null;
     changes: boolean;
@@ -170,18 +172,25 @@ export async function dev(
 
     for (const dir of dirs) {
       if (watchers.has(dir)) continue;
+      let watcher: FSWatcher;
 
-      const watcher = watch(dir, (_event, name) => {
-        // Some platforms give no name; then any change in the folder counts.
-        if (name) {
-          const path = join(dir, name);
-          const relevant = (f: string) => f === path || f.startsWith(path + sep);
+      try {
+        watcher = watch(dir, (_event, name) => {
+          // Some platforms give no name; then any change in the folder counts.
+          if (name) {
+            const path = join(dir, name);
+            const relevant = (f: string) => f === path || f.startsWith(path + sep);
 
-          if (![...versions.keys()].some(relevant)) return;
-        }
+            if (![...versions.keys()].some(relevant)) return;
+          }
 
-        schedule();
-      });
+          schedule();
+        });
+      } catch {
+        // A folder that cannot be watched, as at the system's limit of watches, is left out:
+        // `/state.json` still finds a change to one of its files.
+        continue;
+      }
 
       // A watch that stops would miss the next save, so build now; the build watches again.
       watcher.on("error", () => {
@@ -575,11 +584,15 @@ export async function dev(
           const width = Math.min(Math.max(Number(url.searchParams.get("width")) || 1600, 16), 8000);
 
           let entry = pngs.find(
-            (p) => p.width === width && p.layout === layout && p.changes === changes,
+            (p) =>
+              p.build === on.build &&
+              p.width === width &&
+              p.layout === layout &&
+              p.changes === changes,
           );
 
           if (!entry) {
-            const made = { width, layout, changes, png: toPNG(source, width) };
+            const made = { build: on.build, width, layout, changes, png: toPNG(source, width) };
             made.png.catch(() => (pngs = pngs.filter((p) => p !== made)));
             entry = made;
           }

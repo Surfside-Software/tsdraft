@@ -2,14 +2,15 @@
 // and stays bounded on any value, as `lint` does: the edit's shape is checked first, each handle is
 // paid for before it is worked, and what goes past the limit is one diagnostic.
 import type { CallSite } from "../callsite.ts";
+import { nearestFont } from "../fonts.ts";
 import { layerKey } from "../layers.ts";
 import { OUTSIDE_THE_READ, partFilter, type PartFilter } from "../read/part.ts";
-import type { DrawingRead, ReadEntity } from "../read/model.ts";
+import type { DrawingRead, ReadEntity, ReadTable } from "../read/model.ts";
 import { addedOf, readAdditionsFile, type Added } from "./added.ts";
 import { canonicalHandle, checkEdit, MADE_KINDS, statementCall, type Edit } from "./model.ts";
 import { replacement, writesAdditions } from "./replaced.ts";
 import { movedEntity, NOT_MOVED, NOT_SCALED } from "./moved.ts";
-import { editReach, indexRead, type Located, type ReadIndex } from "./reach.ts";
+import { editReach, indexRead, ownPicture, type Located, type ReadIndex } from "./reach.ts";
 import { planKey, stretchPlan } from "./stretch.ts";
 import { applied } from "./transform.ts";
 import {
@@ -27,6 +28,20 @@ const absoluteHeight = (value: string): boolean => {
     if (m[0] !== "\\\\" && m[1] === "") return true;
 
   return false;
+};
+
+/** What a refusal in a block calls an entity of each kind tsdraft lays out itself. */
+const KIND_NAMES: Partial<Record<ReadEntity["kind"], string>> = {
+  text: "a justified text",
+  insert: "an insert with a justified attribute",
+  mtext: "a paragraph in columns",
+  multileader: "a multileader",
+  dimension: "a dimension",
+  "radial-dimension": "a dimension",
+  "angular-dimension": "a dimension",
+  "ordinate-dimension": "a dimension",
+  "arc-length-dimension": "a dimension",
+  table: "a table",
 };
 
 /** True when an entity holds paragraph text with a height of its own, which a scale leaves. */
@@ -157,6 +172,46 @@ function missingWhy(read: DrawingRead): string {
   return "";
 }
 
+/**
+ * How many times the file inserts a block, or undefined where the read cannot tell: a read that
+ * leaves entities out counts the inserts of its spaces' censuses, which stay whole, and of the
+ * blocks, unless a census stopped at its limit or a block's definition did.
+ */
+function insertsOf(read: DrawingRead, index: ReadIndex, name: string): number | undefined {
+  const spaces = [read.model, ...read.layouts];
+
+  const partial =
+    read.only !== undefined ||
+    spaces.some(
+      (s) => (s.other?.[OUTSIDE_THE_READ] ?? 0) > 0 || (s.other?.["past the limit"] ?? 0) > 0,
+    );
+
+  const blocksWhole = read.blocks.every((b) => (b.other["past the limit"] ?? 0) === 0);
+
+  if (!partial && blocksWhole) return index.inserts.get(name) ?? 0;
+
+  if (!blocksWhole || spaces.some((s) => s.census.capped)) return undefined;
+  let counts = wholeInserts.get(read);
+
+  if (counts === undefined) {
+    const made = new Map<string, number>();
+
+    const count = (block: string): void => {
+      made.set(layerKey(block), (made.get(layerKey(block)) ?? 0) + 1);
+    };
+
+    for (const s of spaces) for (const i of s.census.inserts) count(i.block);
+
+    for (const b of read.blocks)
+      for (const e of b.entities) if (e.kind === "insert") count(e.block);
+    wholeInserts.set(read, (counts = made));
+  }
+
+  return counts.get(layerKey(name)) ?? 0;
+}
+
+const wholeInserts = new WeakMap<DrawingRead, ReadonlyMap<string, number>>();
+
 /** The entity a move, a stretch or a vertices statement leaves, or undefined where it is as it was. */
 function entityAfter(
   edit: Edit,
@@ -280,6 +335,20 @@ export function handleProblem(
       `${h} clips the viewport ${clipped}, whose box it holds: it moves with the viewport, in a move of both`,
     );
 
+  // A dimension's picture is in the world's coordinates, and moves with it only where it is its alone.
+  if (
+    s.kind !== "erase" &&
+    s.kind !== "change" &&
+    DIMENSIONS.has(e.kind) &&
+    "blockHandle" in e &&
+    e.blockHandle !== undefined &&
+    ownPicture(index, e) === undefined
+  )
+    return error(
+      "edit-part",
+      `${h} is a dimension whose picture block is not its alone, so no edit ${verb} it: erase it and draw it again`,
+    );
+
   if (NOT_MOVED.has(e.kind))
     return error(
       "edit-modeler",
@@ -354,20 +423,22 @@ export function handleProblem(
   if (at.space.kind === "block") {
     const name = at.space.name;
     const block = index.blocks.get(name);
-    const xref = read.xrefs.some((x) => x.name === name);
-    const uses = index.inserts.get(name) ?? 0;
+    // An xref, or a block an xref's file holds, which the leading CAD app names with its `|`.
+    const xref = name.includes("|") || read.xrefs.some((x) => layerKey(x.name) === layerKey(name));
+    const uses = insertsOf(read, index, name);
 
     if (
       block === undefined ||
       block.anonymous ||
       name.startsWith("*") ||
       xref ||
+      uses === undefined ||
       uses > 1 ||
       index.insertsInBlocks.has(name)
     )
       return error(
         "edit-block",
-        `${h} is of the block ${JSON.stringify(name)}, ${xref ? "an xref" : block?.anonymous || name.startsWith("*") ? "which the file names itself" : uses > 1 ? `which the file inserts ${uses} times` : "which another block inserts"}: changing it would change every insert of it`,
+        `${h} is of the block ${JSON.stringify(name)}, ${xref ? "an xref" : block?.anonymous || name.startsWith("*") ? "which the file names itself" : uses === undefined ? "whose inserts the read does not all list" : uses > 1 ? `which the file inserts ${uses} times` : "which another block inserts"}: changing it would change every insert of it`,
       );
 
     return {
@@ -402,6 +473,18 @@ export function lintEdit(
     } else past++;
   };
 
+  // What goes past the limit is one error, which the list ends with.
+  const finish = (): EditDiagnostic[] => {
+    if (past > 0)
+      out.push({
+        rule: "edit-limit",
+        severity: "error",
+        message: `${past} more diagnostics past the ${most} listed`,
+      });
+
+    return out;
+  };
+
   try {
     const problems = checkEdit(edit);
 
@@ -412,7 +495,7 @@ export function lintEdit(
         message: `The edit is malformed: ${problems.join("; ")}`,
       });
 
-      return out;
+      return finish();
     }
 
     if (read.sha256 !== edit.sha256)
@@ -445,7 +528,7 @@ export function lintEdit(
         message: "The read has no geometry, so it holds no entity an edit can name",
       });
 
-      return out;
+      return finish();
     }
 
     const index = indexRead(read);
@@ -588,14 +671,7 @@ export function lintEdit(
     });
   }
 
-  if (past > 0)
-    out.push({
-      rule: "edit-limit",
-      severity: "error",
-      message: `${past} more diagnostics past the ${most} listed`,
-    });
-
-  return out;
+  return finish();
 }
 
 /**
@@ -649,27 +725,120 @@ function lintAdditions(edit: Edit, read: DrawingRead, report: (d: EditDiagnostic
     read.dimensionStyles.filter((d) => (d.textLevelInside ?? 1) === 1).map((d) => layerKey(d.name)),
   );
 
-  // The file's own Standard, whose font the builder does not take: it measures Standard in its
-  // own font, so a justified text there would start where the file's font does not put it.
-  const standard = read.textStyles.find((t) => layerKey(t.name) === "standard");
-
-  const otherStandard =
-    standard !== undefined && (standard.font ?? "").toLowerCase().replace(/\.shx$/, "") !== "txt";
-
-  for (const space of added.spaces)
-    for (const e of space.entities) {
-      if (
-        otherStandard &&
-        e.kind === "text" &&
-        e.alignAt !== undefined &&
-        layerKey(e.style) === "standard"
+  // The file's styles whose font the builder does not take, so a justified text in one would
+  // start where the file's font does not put it: its own Standard, which the builder measures in
+  // txt.shx, and a style in a font not in FONTS, which it measures in a stand-in.
+  const unmeasured = new Map(
+    read.textStyles
+      .filter((t) =>
+        layerKey(t.name) === "standard"
+          ? (t.font ?? "").toLowerCase().replace(/\.shx$/, "") !== "txt"
+          : !nearestFont(t.family ?? t.font ?? "txt.shx").exact,
       )
+      .map((t) => [layerKey(t.name), t.name]),
+  );
+
+  // Of those, the styles in a stand-in font, where every width the writers work out from the
+  // font would be the stand-in's: what the leading CAD app lays out itself is all they take.
+  const standIn = (name: string | undefined): string | undefined =>
+    name === undefined || layerKey(name) === "standard"
+      ? undefined
+      : unmeasured.get(layerKey(name));
+
+  // The file's styles and those the edit adds alike.
+  const dimensionStyles = [...read.dimensionStyles, ...added.dimensionStyles];
+  const tableStyles = [...read.tableStyles, ...added.tableStyles];
+
+  const dimensionText = (style: string): string | undefined =>
+    standIn(dimensionStyles.find((s) => layerKey(s.name) === layerKey(style))?.textStyle);
+
+  // Of a table, the cell styles of the rows that hold text: the title's, the header's, the data's.
+  const tableText = (t: ReadTable): string | undefined => {
+    const s = tableStyles.find(
+      (x) => t.style !== undefined && layerKey(x.name) === layerKey(t.style),
+    );
+
+    if (s === undefined) return undefined;
+    const first = (t.title ? 1 : 0) + (t.header ? 1 : 0);
+
+    const holds = (from: number, to: number): boolean =>
+      t.cells.some((c) => c.row >= from && c.row < to && (c.text ?? "") !== "");
+
+    return [
+      t.title && holds(0, 1) ? s.title : undefined,
+      t.header && holds(first - 1, first) ? s.header : undefined,
+      holds(first, Infinity) ? s.data : undefined,
+    ]
+      .map((c) => standIn(c?.textStyle))
+      .find((n) => n);
+  };
+
+  // The stand-in style a kind tsdraft lays out itself is drawn in, if any.
+  const laidOutIn = (e: ReadEntity): string | undefined => {
+    switch (e.kind) {
+      case "insert":
+        return e.attributes
+          ?.filter((a) => a.alignAt !== undefined && a.paragraph === undefined)
+          .map((a) => standIn(a.style))
+          .find((n) => n);
+      case "mtext":
+        return e.columns === undefined ? undefined : standIn(e.style);
+      case "multileader":
+        return standIn(e.textStyle);
+      case "dimension":
+      case "radial-dimension":
+      case "angular-dimension":
+      case "ordinate-dimension":
+      case "arc-length-dimension":
+        return dimensionText(e.style);
+      case "table":
+        return tableText(e);
+      default:
+        return undefined;
+    }
+  };
+
+  // A block the edit defines is drawn where each insert puts it, as tsdraft laid it out.
+  for (const b of added.blocks)
+    for (const e of b.entities) {
+      const style =
+        (e.kind === "text" && e.alignAt !== undefined
+          ? unmeasured.get(layerKey(e.style))
+          : undefined) ?? laidOutIn(e);
+
+      if (style !== undefined)
         report({
           rule: "edit-addition",
           severity: "error",
           ...(e.handle !== undefined && { handle: e.handle }),
-          message: `The addition ${e.mark?.id ?? e.handle ?? ""} is a justified text in the file's Standard, whose font tsdraft does not measure it in: justify it left, or name another of the file's styles`,
+          message: `The block ${b.name} the edit adds holds ${KIND_NAMES[e.kind] ?? e.kind} laid out by tsdraft in the file's text style ${style}, whose font tsdraft does not measure it in: only a text justified left and a paragraph of one column may be drawn in it`,
         });
+    }
+
+  for (const space of added.spaces)
+    for (const e of space.entities) {
+      const style = e.kind === "text" ? unmeasured.get(layerKey(e.style)) : undefined;
+      const id = e.mark?.id ?? e.handle ?? "";
+
+      const refuse = (message: string): void =>
+        report({
+          rule: "edit-addition",
+          severity: "error",
+          ...(e.handle !== undefined && { handle: e.handle }),
+          message,
+        });
+
+      if (e.kind === "text" && e.alignAt !== undefined && style !== undefined)
+        refuse(
+          `The addition ${id} is a justified text in the file's ${style}, whose font tsdraft does not measure it in: justify it left, or name another of the file's styles`,
+        );
+
+      const laidOut = laidOutIn(e);
+
+      if (laidOut !== undefined)
+        refuse(
+          `The addition ${id} is laid out by tsdraft in the file's text style ${laidOut}, whose font tsdraft does not hold: only a text justified left and a paragraph of one column may be drawn in it`,
+        );
 
       // tsdraft draws a dimension's text along its line, which a style that keeps it level
       // draws otherwise wherever the line is not level.

@@ -158,7 +158,13 @@ function ellipseInPlan(e: ReadEdgeEllipse): Curve | undefined {
   const c = flat(e.center);
   const a = flat(A);
   const b = flat(minor);
-  const whole = e.startParameter === undefined || e.endParameter === undefined;
+
+  // Parameters a whole turn apart are a whole ellipse too.
+  const whole =
+    e.startParameter === undefined ||
+    e.endParameter === undefined ||
+    e.endParameter - e.startParameter >= 360;
+
   const t0 = whole ? 0 : (e.startParameter! * Math.PI) / 180;
   const t1 = whole ? TURN : (e.endParameter! * Math.PI) / 180;
   // The phase that makes the axes square: tan 2φ = 2 a·b / (|a|² - |b|²).

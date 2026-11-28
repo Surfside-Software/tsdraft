@@ -68,11 +68,10 @@ import {
   leaderArrowheadHandles,
   leaderBlock,
   leaderDrawnProblem,
-  leaderRepeats,
   leaderStyleDictionaryHandle,
   validLeaderStyleHandle,
-  leaderPlacesBlock,
 } from "./leaders.ts";
+import { leaderPlacesBlock, leaderRepeats } from "./leader-walks.ts";
 import { paperInfo } from "./papers.ts";
 import { isUnits } from "./units.ts";
 import type { Standard } from "./standard/document.ts";
@@ -94,15 +93,14 @@ import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
 import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import {
   STANDARD_TABLE_STYLE,
-  tableCost,
   tableMargins,
   tableMeasures,
   tablePicture,
-  tableRepeats,
   tableTexts,
   tableStyleDictionaryHandle,
   validTableStyleHandle,
 } from "./tables.ts";
+import { tableCost, tableRepeats } from "./table-walks.ts";
 import { parseParagraph, type ParsedParagraph } from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
@@ -1430,30 +1428,44 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   const audited = new Map<string, string>();
   each(listed<Layer>("layers", "format"), "layers", "format", TYPED.layer, (layer, i) => {
     if (malformed(WALKABLE.layer, layer, `layers[${i}]`, "format")) return;
+    // Read once: a getter or a proxy may give another value each time.
+    const name: unknown = layer.name;
+
+    if (!isString(name)) {
+      const at = `layers[${i}]`;
+      out.push({
+        rule: "format",
+        severity: "error",
+        message: `${at}.name must be a string`,
+        item: at,
+      });
+
+      return;
+    }
 
     const error = (rule: LintRule, message: string) =>
-      out.push({ rule, severity: "error", message, layer: layer.name });
+      out.push({ rule, severity: "error", message, layer: name });
 
-    const nameProblem = layerNameProblem(layer.name, version);
+    const nameProblem = layerNameProblem(name, version);
 
-    if (nameProblem) error("layer-name", `Layer ${shown(layer.name)}: ${nameProblem}`);
+    if (nameProblem) error("layer-name", `Layer ${shown(name)}: ${nameProblem}`);
     const colorProblem = layerColorProblem(layer.color);
 
-    if (colorProblem) error("layer-color", `Layer ${shown(layer.name)}: ${colorProblem}`);
-    const label = `Layer ${shown(layer.name)}`;
+    if (colorProblem) error("layer-color", `Layer ${shown(name)}: ${colorProblem}`);
+    const label = `Layer ${shown(name)}`;
 
     if (layer.linetype !== undefined) {
-      const name: unknown = layer.linetype;
+      const linetype: unknown = layer.linetype;
 
       if (r12) {
-        if (!isString(name) || builtInLinetype(name) !== "Continuous") {
+        if (!isString(linetype) || builtInLinetype(linetype) !== "Continuous") {
           error("linetype", `${label}: ${R12_ONLY.linetypes}`);
         }
       } else {
-        const absent = missing(name);
+        const absent = missing(linetype);
 
         if (absent) error("undefined-linetype", `${label}: ${absent}`);
-        const problem = isString(name) ? layerLinetypeProblem(name) : undefined;
+        const problem = isString(linetype) ? layerLinetypeProblem(linetype) : undefined;
 
         if (problem) error("linetype", `${label}: ${problem}`);
       }
@@ -1476,25 +1488,25 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     const states = layer.off || layer.frozen || layer.locked || layer.plot === false;
 
     const stateProblem =
-      r12 && states ? R12_ONLY.layerStates : layerStateProblem(layer.name, layer.frozen);
+      r12 && states ? R12_ONLY.layerStates : layerStateProblem(name, layer.frozen);
 
     if (stateProblem) error("layer-state", `${label}: ${stateProblem}`);
-    const key = layerKey(layer.name);
-    const auditKey = layerAuditKey(layer.name);
-    const twinProblem = layerTwinProblem(layer.name, audited.get(auditKey) ?? layer.name);
+    const key = layerKey(name);
+    const auditKey = layerAuditKey(name);
+    const twinProblem = layerTwinProblem(name, audited.get(auditKey) ?? name);
 
     if (seen.has(key)) {
       error(
         "duplicate-layer",
-        `Layer ${shown(layer.name)} is defined twice. CAD ignores case in layer names`,
+        `Layer ${shown(name)} is defined twice. CAD ignores case in layer names`,
       );
     } else if (twinProblem) {
-      error("duplicate-layer", `Layer ${shown(layer.name)}: ${twinProblem}`);
+      error("duplicate-layer", `Layer ${shown(name)}: ${twinProblem}`);
     }
 
     seen.add(key);
 
-    if (!audited.has(auditKey)) audited.set(auditKey, layer.name);
+    if (!audited.has(auditKey)) audited.set(auditKey, name);
   });
 
   if (!seen.has("0")) {
@@ -1730,7 +1742,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   // Leader style names are compared as dimension style names are. A style with a name counts for
   // the leaders that name it, whatever else is wrong with it, and only one with nothing wrong is
   // drawn with.
-  const leaderStyleNames = new Set<string>();
+  const leaderStyleNames = new Map<string, LeaderStyle>();
   const leaderStyles = new Map<string, LeaderStyle>();
   const leaderStylesAudited = new Map<string, string>();
   const leaderArrowheads = new Set<string>();
@@ -1788,7 +1800,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
 
       leaderStylesAudited.set(auditKey, style.name);
       const key = layerKey(style.name);
-      leaderStyleNames.add(key);
+      leaderStyleNames.set(key, style);
       const textStyle: unknown = style.textStyle;
       let lettered = true;
 
@@ -2056,7 +2068,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     else if (isString(name) && !leaderStyleNames.has(layerKey(name))) {
       add("undefined-leader-style", "error", undefinedLeaderStyleProblem(name));
     } else if (isString(name)) style = leaderStyles.get(layerKey(name));
-    const content = leaderBlock(leader, style);
+
+    // A style with an error of its own still gives its block, so the leader is not held to a note.
+    const content = leaderBlock(
+      leader,
+      isString(name) ? leaderStyleNames.get(layerKey(name)) : undefined,
+    );
+
     let noteProblem: string | undefined;
     const ownBlock: unknown = leader.block;
 
@@ -3257,7 +3275,6 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     boxed = true;
 
     if (stopped !== undefined) return undefined;
-    // A drawing whose entities cannot be measured has errors of its own above.
     modelBox = null;
     let boxOf: Boxer;
 
@@ -3277,7 +3294,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         [...tableStyles.values()],
       );
     } catch {
-      return modelBox;
+      // A drawing whose entities cannot be measured has errors of its own above, and a box that
+      // is not known holds no viewport to it.
+      return (modelBox = undefined);
     }
 
     const spaces: [unknown, string][] = [[drawing.entities, "model space"]];
@@ -3295,6 +3314,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
 
         if (model && entities.length > 0) modelBox = box ?? [0, 0, 1, 1];
       } catch {
+        if (model) modelBox = undefined;
         continue;
       }
 

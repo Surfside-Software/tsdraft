@@ -9,7 +9,13 @@ import { lintEdit } from "./lint.ts";
 import { addedOf, startsOf } from "./added.ts";
 import { planRecord } from "./additions.ts";
 import { replacement, withReplacement, writesAdditions } from "./replaced.ts";
-import { addedRecords, addRecord, dxfAdditionsFile, withHandseed } from "./dxf-additions.ts";
+import {
+  addedRecords,
+  addRecord,
+  dxfAdditionsFile,
+  withHandseed,
+  withHandseedIn,
+} from "./dxf-additions.ts";
 import { EditError, editToMake, type Edit } from "./model.ts";
 import { indexRead } from "./reach.ts";
 
@@ -136,6 +142,7 @@ export function editDXF(bytes: Uint8Array, edit: Edit, read: DrawingRead): Uint8
 
     const encoder = new TextEncoder();
     const parts: Uint8Array[] = [];
+    let seeded = false;
 
     for (let i = 0; i < doc.count; i++) {
       const put = before.get(i);
@@ -147,15 +154,32 @@ export function editDXF(bytes: Uint8Array, edit: Edit, read: DrawingRead): Uint8
       const end = start + doc.length(i);
       const text = texts.get(i);
 
+      const held = patched.get(i);
+
       if (text !== undefined) parts.push(encoder.encode(text));
-      else if (seed !== undefined && seed.start >= start && seed.end <= end && !patched.has(i))
+      else if (seed !== undefined && seed.start >= start && seed.end <= end) {
+        // A header a statement changed too, such as its `$VISRETAIN`, takes the seed on top.
+        const made = held === undefined ? undefined : withHandseedIn(held, seed.text);
+
+        if (held !== undefined && made === undefined)
+          throw new EditError("The changed header holds no $HANDSEED to write again");
         parts.push(
-          bytes.subarray(start, seed.start),
-          encoder.encode(seed.text),
-          bytes.subarray(seed.end, end),
+          ...(made === undefined
+            ? [
+                bytes.subarray(start, seed.start),
+                encoder.encode(seed.text),
+                bytes.subarray(seed.end, end),
+              ]
+            : [made]),
         );
-      else parts.push(patched.get(i) ?? bytes.subarray(start, end));
+        seeded = true;
+      } else parts.push(held ?? bytes.subarray(start, end));
     }
+
+    if (seed !== undefined && !seeded)
+      throw new EditError(
+        "The file's $HANDSEED is in a record the additions change, so it is not written again",
+      );
 
     const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
     let at = 0;

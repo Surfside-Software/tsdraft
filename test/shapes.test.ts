@@ -131,12 +131,13 @@ const FENCE = shxBytes([[133, "CIRC1", [10, 1, -0x40, 0]]]);
 
 function fence(): Drawing {
   const d = createDrawing({ units: "in" });
-  d.linetype({
-    name: "FENCE",
-    pattern: [0.25, -0.1, -0.1, 1],
-    marks: [{ after: 1, glyph: 133, file: "fence.shx", scale: 0.1, offset: [-0.1, 0] }],
+  d.line([0, 0], [2.6, 0], {
+    linetype: {
+      name: "FENCE",
+      pattern: [0.25, -0.1, -0.1, 1],
+      marks: [{ after: 1, glyph: 133, file: "fence.shx", scale: 0.1, offset: [-0.1, 0] }],
+    },
   });
-  d.line([0, 0], [2.6, 0], { linetype: "FENCE" });
 
   return d.build();
 }
@@ -214,8 +215,7 @@ test("fromJSON refuses an empty slot or a getter in linetypes or marks where its
 test("a pattern that ends with a dash is fitted to its own first dash", () => {
   // 2.6 holds one pattern of 1.45: its first and last dashes are each (0.25 + 2.6 - 1.45) / 2.
   const d = createDrawing({ units: "in" });
-  d.linetype({ name: "LONG", pattern: [0.25, -0.1, -0.1, 1] });
-  d.line([0, 0], [2.6, 0], { linetype: "LONG" });
+  d.line([0, 0], [2.6, 0], { linetype: { name: "LONG", pattern: [0.25, -0.1, -0.1, 1] } });
   const path = /d="([^"]+)"/.exec(toSVG(d.build(), { margin: 0 }))?.[1] ?? "";
   const xs = [...path.matchAll(/[ML] (-?[\d.]+) /g)].map((m) => Number(m[1]));
   assert.deepEqual(xs, [0, 0.7, 0.9, 1.9, 1.9, 2.6]);
@@ -258,14 +258,13 @@ test("a shape file whose shapes draw a shape many times over is refused, and qui
 
 test("a polyline's clockwise arc is cut the way the polyline runs", () => {
   const d = createDrawing({ units: "in" });
-  d.linetype({ name: "ASYM", pattern: [1, -1, 2, -2, 3] });
   d.polyline(
     [
       [0, 0],
       [6, 0],
     ],
     false,
-    { linetype: "ASYM", bulges: [-1] },
+    { linetype: { name: "ASYM", pattern: [1, -1, 2, -2, 3] }, bulges: [-1] },
   );
   // Its first dash, (1 + 3π - 9) / 2 long, starts where the polyline does.
   const path = /d="([^"]+)"/.exec(toSVG(d.build(), { margin: 0 }))?.[1] ?? "";
@@ -334,7 +333,8 @@ test("a file of many shapes given under many names is tabled once", () => {
       pattern: [1, -1],
       marks: [{ after: 0, glyph: 1, file: n, scale: 0.1 }],
     });
-  d.line([0, 0], [3, 0], { linetype: "L0" });
+  const first: string = "L0";
+  d.line([0, 0], [3, 0], { linetype: first });
   const drawing = d.build();
   assert.equal(lint(drawing, { shx }).filter((x) => x.rule === "linetype-shape").length, 0);
   toSVG(drawing, { shx });

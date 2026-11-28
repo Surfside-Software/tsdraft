@@ -53,6 +53,7 @@ const ENTITY_KEYS: ReadonlySet<string> = new Set([
   "text",
   "height",
   "width",
+  "boxHeight",
   "attributes",
   "layer",
   "color",
@@ -88,6 +89,9 @@ export function entityChangesProblem(value: EntityChanges): string | undefined {
 
   if (value.width !== undefined && !(finite(value.width) && value.width >= 0 && value.width < 1e15))
     return "width is not 0 or more";
+
+  if (value.boxHeight !== undefined && value.boxHeight !== 0)
+    return "boxHeight is not 0, the one height set: 0 fits a multileader's note box to its text";
 
   if (value.attributes !== undefined) {
     if (!isRecord(value.attributes)) return "attributes is not a record of tags";

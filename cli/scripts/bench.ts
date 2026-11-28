@@ -8,15 +8,20 @@
 // watch, the wait for the save to settle and the push. The machine's load average and its
 // number of cores are beside each drawing, since a busy machine is slower. Run with `pnpm bench`.
 import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism, loadavg } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const cli = `${root}src/cli.ts`;
-const dir = `${root}examples/out/bench`;
 
-mkdirSync(dir, { recursive: true });
+// A folder of this run's own, since a dev server of another bench would build on its saves.
+mkdirSync(`${root}examples/out`, { recursive: true });
+
+const dir = mkdtempSync(`${root}examples/out/bench-`);
+
+// On every way out, a failed setup or bench included.
+process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
 
 const small = `${dir}/small.ts`;
 
@@ -75,14 +80,34 @@ function benchRender(file: string, runs: number) {
 }
 
 async function benchDev(file: string, edits: number, pause: number) {
-  const server = spawn(process.execPath, [cli, "dev", file, "--port", "4699"], {
+  // With no port given, the server takes a free one and prints its address, so benches run at once.
+  const server = spawn(process.execPath, [cli, "dev", file], {
     stdio: ["ignore", "pipe", "inherit"],
   });
 
-  await new Promise<void>((resolve) =>
-    server.stdout.on("data", (b: Buffer) => b.toString().includes("http") && resolve()),
-  );
-  const response = await fetch("http://127.0.0.1:4699/events");
+  const base = await new Promise<string>((resolve, reject) => {
+    let printed = "";
+
+    const onData = (b: Buffer): void => {
+      printed += b.toString();
+      // The whole address: what follows it shows that no digit of the port is still to come.
+      const url = /(http:\/\/\S+)\s/.exec(printed)?.[1];
+
+      if (url) {
+        server.stdout.off("data", onData);
+        server.off("exit", onExit);
+        resolve(url);
+      }
+    };
+
+    const onExit = (code: number | null): void =>
+      reject(new Error(`tsdraft dev ended, with ${code}, before it printed its address`));
+
+    server.stdout.on("data", onData);
+    server.once("exit", onExit);
+  });
+
+  const response = await fetch(`${base}/events`);
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";

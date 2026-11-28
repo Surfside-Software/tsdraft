@@ -611,8 +611,11 @@ function resolve<F extends Readonly<Record<string, unknown>>>(
     return info;
   };
 
+  // A role's text style has its styleName, or else its id in capitals, as the builder names it.
   const roleStyles = new Map(
-    [...merged.textRoles.values()].map(([id]) => [layerAuditKey(capitals(id)), id] as const),
+    each<StandardTextRole>("textRoles").map(
+      ([id, role]) => [layerAuditKey(role.styleName ?? capitals(id)), id] as const,
+    ),
   );
 
   const blocks = new Map<string, { name: string; json: string; owner: string }>();
@@ -767,8 +770,9 @@ function resolve<F extends Readonly<Record<string, unknown>>>(
   if (problems.length > 0) return undefined;
 
   /**
-   * `entry` with each field that names another entry, and each key of its `byDiscipline`, spelled
-   * as that entry is, so that neither the standard nor its hash depends on how a name was written.
+   * `entry` with each field that names another entry, and each key of its `byDiscipline` and its
+   * `scaleNames`, spelled as that entry is, so that neither the standard nor its hash depends on
+   * how a name was written.
    */
   const respelled = (section: Section, entry: Fields): Fields => {
     let out: Record<string, StandardValue | undefined> | undefined;
@@ -780,6 +784,20 @@ function resolve<F extends Readonly<Record<string, unknown>>>(
       const spelled = spelling(target, name)!;
 
       if (spelled !== name) (out ??= { ...entry })[field] = spelled;
+    }
+
+    // SAFETY: `readDocument` has read scaleNames as a map of names by the ids of scales.
+    const scaleNames = entry.scaleNames as { readonly [scale: string]: string } | undefined;
+
+    if (scaleNames) {
+      const scales = Object.keys(scaleNames);
+      const spelled = scales.map((scale) => spelling("scales", scale)!);
+
+      if (spelled.some((scale, i) => scale !== scales[i])) {
+        (out ??= { ...entry }).scaleNames = Object.freeze(
+          entriesObject(scales.map((scale, i) => [spelled[i]!, scaleNames[scale]!] as const)),
+        );
+      }
     }
 
     // SAFETY: `readDocument` has read byDiscipline as a map of the section's entry's fields.

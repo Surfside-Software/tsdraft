@@ -143,6 +143,12 @@ test("the builder refuses what a drawing's blocks cannot be, at the call", () =>
     rule("undefined-attribute"),
   );
   assert.throws(() => d.insert("TREE", [0, 0], { attributes: { TAG: "a\nb" } }), rule("text"));
+  // A refused insert keeps none of the handles of its attributes, so it can be placed again.
+  assert.throws(
+    () => d.insert("TREE", [0, 0], wrong<{ id: "T1" }>({ id: "T1", linetype: "NOPE" })),
+    /NOPE/,
+  );
+  d.insert("TREE", [0, 0], { id: "T1" });
   // An id names one entity of the drawing, in a block or out of one.
   d.block("B", {}, () => d.line([0, 0], [1, 0], { id: "edge" }));
   assert.throws(() => d.line([0, 0], [1, 0], { id: "Edge" }), rule("duplicate-id"));
@@ -157,7 +163,7 @@ test("the builder refuses what a drawing's blocks cannot be, at the call", () =>
   // An attribute an insert would put past what the leading CAD app reads.
   d.block("FAR", {}, () => d.attribute("A", [1e99, 0]));
   assert.throws(() => d.insert("FAR", [0, 0], { scale: 1000000 }), /puts the attribute "A" at/);
-  assert.equal(d.build().entities.length, 1);
+  assert.equal(d.build().entities.length, 2);
   const far = { ...d.build(), entities: [insert("FAR", { scale: [1000000, 1000000] })] };
   assert.deepEqual(rules(far), ["geometry"]);
 });
@@ -519,7 +525,7 @@ test("SVG draws an insert's block where the insert puts it, on the layers the le
   assert.match(first!, /rotate\(-15\) translate\(-0.590041 0.25\) skewX\(-10\)[^>]*>OAK<\/text>/);
   // An uneven scale makes an ellipse of the circle, turned with the insert.
   assert.match(second!, /<ellipse cx="30" cy="10" rx="6" ry="1.5" transform="rotate\(30 30 10\)"/);
-  assert.match(second!, /<text transform="matrix\(1.732051 1 -0.25 0.433013 30 10\) /);
+  assert.match(second!, /<text transform="matrix\(1.73205080757 1 -0.25 0.433012701892 30 10\) /);
   // The extents take in what each insert draws.
   const [minX, minY, maxX, maxY] = extents(drawing.entities, drawing.textStyles, drawing.blocks);
   assert.ok(minX < 7.01 && minY < 6.5 && maxX > 36.9 && maxY > 53.4, `${[minX, minY, maxX, maxY]}`);
@@ -597,6 +603,17 @@ test("an attribute of paragraph text of the wrong shape is drawn as none, and un
   assert.ok(lint(wide).some((w) => w.severity === "error"));
   toSVG(wide);
   inspectText(wide);
+  // An insert of a scale of 0, which `lint` refuses, places no paragraph.
+  assert.doesNotMatch(toSVG(withDefinition({}, { scale: [0, 2] })), /NaN|Infinity/);
+
+  // Nor does an entity of a block that is no object, or an insert that names its block with none.
+  const odder: Drawing = {
+    ...built,
+    blocks: [{ ...block, entities: [wrong(null), wrong({ ...dataOf(placed), block: null })] }],
+  };
+
+  assert.ok(lint(odder).some((w) => w.severity === "error"));
+  toSVG(odder);
   // An insert that scales its block unevenly makes a value the drawing does not hold, which pays
   // its length the first time it is laid out, as a long value laid out again does; inserts of
   // one scale share it, and a box kept is mapped alone.
@@ -628,4 +645,29 @@ test("an attribute of paragraph text of the wrong shape is drawn as none, and un
     inspectWithin({ ...built, entities }, {}, 400_000).some((w) => w.rule === "text-check-capped");
 
   assert.deepEqual([checked(scales), checked(one)], [true, false]);
+});
+
+test("a text in a block scaled far down stays where its block's lines put it", () => {
+  const d = createDrawing({ units: "ft" });
+  d.block("FAR", {}, () => {
+    d.line([100_000, 0], [100_001, 0]);
+    d.text([100_000, 0], "A", { height: 2.5 });
+  });
+
+  d.insert("FAR", [0, 0], { scale: [1 / 304.8, 1 / 304.8] });
+  const svg = toSVG(d.build());
+  const x1 = Number(/<line x1="([^"]+)"/.exec(svg)![1]);
+
+  const [a, , , , e] = /matrix\(([^)]+)\) translate\(100000 0\)/
+    .exec(svg)![1]!
+    .split(" ")
+    .map(Number);
+
+  assert.ok(Math.abs(a! * 100_000 + e! - x1) < 1e-5, `${a! * 100_000 + e!} and ${x1}`);
+});
+
+test("an entity with a NaN leaves the others' extents as they are", () => {
+  const line: Entity = { kind: "line", layer: "0", from: [0, 0], to: [10, 5] };
+  const bad: Entity = { kind: "line", layer: "0", from: [Number.NaN, 0], to: [1, 1] };
+  assert.deepEqual(extents([line, bad]), extents([line]));
 });

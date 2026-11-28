@@ -8,11 +8,9 @@ import { isNumber, type Json } from "../guards.ts";
 import { MARK_APP } from "../read/mark.ts";
 import type { ReadEntity, ReadMark } from "../read/model.ts";
 import { sha256Text } from "../sha256.ts";
+import { canonicalHandle } from "./model.ts";
 
-export { MARK_APP, markOf } from "../read/mark.ts";
-
-/** The format of the mark and of its hash's lists of fields. */
-export const MARK_FORMAT = "1";
+export { MARK_APP, MARK_FORMAT, markOf } from "../read/mark.ts";
 
 /** The mark of each handle the additions write, by the handle. */
 export type Marks = ReadonlyMap<string, ReadMark>;
@@ -46,7 +44,8 @@ const DIMENSION = ["textAt", "text", "textBelow", "style"];
 /**
  * The fields of each kind format 1 hashes. Left out: the handle, the mark, the order of drawing, and
  * what the leading CAD app works out again of itself: a justified text's start, a dimension's
- * picture and measurement, a fit spline's knots, and the handles of what an entity names.
+ * picture and measurement, a fit spline's knots, a multileader's stored note box, which its save
+ * of a wrapped note sets, and the handles of what an entity names.
  */
 const MARK_FIELDS = new Map<string, readonly string[]>(
   Object.entries({
@@ -265,7 +264,7 @@ export function markUnchanged(e: ReadEntity): boolean {
   return (
     m !== undefined &&
     e.handle !== undefined &&
-    m.handle.toUpperCase() === e.handle.toUpperCase() &&
+    canonicalHandle(m.handle) === canonicalHandle(e.handle) &&
     m.hash === markHash(e)
   );
 }

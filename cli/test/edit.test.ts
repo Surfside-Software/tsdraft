@@ -68,6 +68,7 @@ test("render draws an edit file's source after the edit, and a picture of what i
         `e.erase(${JSON.stringify(tag)});`,
         `e.move(["${circle}"], { by: [20, 0] });`,
         `e.change("${wall}", { color: 5 });`,
+        `e.model((d) => d.layer("A-ANNO", () => d.line([0, 0], [5, 5])));`,
       ),
     );
     const { status, state } = render(file, dir);
@@ -80,7 +81,7 @@ test("render draws an edit file's source after the edit, and a picture of what i
     assert.equal(changes.png, join(dir, "rev-1.edit.changes.png"));
     const marked = readFileSync(changes.svg!, "utf8");
 
-    for (const mark of ["erased", "moved-from", "moved"])
+    for (const mark of ["erased", "moved-from", "moved", "added"])
       assert.match(marked, new RegExp(`data-change="${mark}"`));
     assert.deepEqual(
       changes.layouts.map((l) => [l.name, l.svg]),

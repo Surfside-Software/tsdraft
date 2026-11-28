@@ -9,6 +9,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   statSync,
   type Stats,
 } from "node:fs";
@@ -135,9 +136,10 @@ async function hashFile(file: string, most: number): Promise<string | undefined>
 
 /**
  * What tells one build of a reader from another: its name and version, and the count, the size
- * and the newest time of the code files of its folder, apart from the packages it depends on, since
- * a checkout, a link or a patch in place changes them without a new version. Null when the folder
- * holds too many files to look at, and nothing it reads is kept on disk.
+ * and the newest time of the code files of its folder, WebAssembly and native ones among them,
+ * apart from the packages it depends on, since a checkout, a link or a patch in place changes them
+ * without a new version. Null when the folder holds too many files to look at, and nothing it reads
+ * is kept on disk.
  */
 const prints = new Map<string, { at: number; print: string | null }>();
 
@@ -172,7 +174,7 @@ function walkPrint(by: { name: string; version: string }, folder: string): strin
       const path = join(dir, entry.name);
 
       if (entry.isDirectory()) stack.push(path);
-      else if (entry.isFile() && /\.(?:[cm]?[jt]s|json)$/.test(entry.name)) {
+      else if (entry.isFile() && /\.(?:[cm]?[jt]s|json|wasm|node)$/.test(entry.name)) {
         if (++files > FINGERPRINT_FILES) return null;
 
         try {
@@ -344,10 +346,14 @@ export class ReadCache {
     const most = limits.maxAnswerBytes ?? 128 * MB;
 
     if (at !== undefined && at.print !== null && !this.#memory.has(at.key)) {
-      const onDisk = await stat(join(this.folder, `${at.key}.json`)).catch(() => undefined);
+      const path = join(this.folder, `${at.key}.json`);
+      const onDisk = await stat(path).catch(() => undefined);
 
       if (this.folder !== "" && onDisk?.isFile() && onDisk.size <= most) {
         let held: DrawingRead | undefined;
+        // Used now, so that a prune before it is loaded does not take it as the oldest.
+        const now = new Date();
+        await utimes(path, now, now).catch(() => {});
 
         return {
           sha256: at.stamp.sha256,
@@ -370,6 +376,13 @@ export class ReadCache {
 
   #remember(key: string, read: DrawingRead, bytes: number): void {
     if (bytes > MEMORY_BYTES) return;
+    const old = this.#memory.get(key);
+
+    if (old) {
+      this.#memory.delete(key);
+      this.#memoryBytes -= old.bytes;
+    }
+
     this.#memory.set(key, { read, bytes });
     this.#memoryBytes += bytes;
 
@@ -473,23 +486,36 @@ export class ReadCache {
 
   /** `#fromDisk` at once, for a read asked for synchronously. */
   #fromDiskNow(key: string, stamp: Stamp, maxBytes: number): DrawingRead | undefined {
-    try {
-      const path = join(this.folder, `${key}.json`);
+    const path = join(this.folder, `${key}.json`);
 
-      if (statSync(path).size > maxBytes) return undefined;
+    try {
+      if (statSync(path).size > maxBytes) throw new Error("too large");
       const text = readFileSync(path, "utf8");
       const parsed: Json = JSON.parse(text);
       bare(parsed);
 
-      if (checkDrawingRead(parsed).length > 0) return undefined;
+      if (checkDrawingRead(parsed).length > 0) throw new Error("not a sound read");
       // SAFETY: checkDrawingRead found the fields of a DrawingRead in it, each of its type.
       const read: DrawingRead = parsed as JsonObject & DrawingRead;
 
-      if (read.sha256 !== stamp.sha256 || read.bytes !== stamp.size) return undefined;
+      if (read.sha256 !== stamp.sha256 || read.bytes !== stamp.size) {
+        throw new Error("not this file's read");
+      }
+
       this.#remember(key, read, text.length);
 
       return read;
-    } catch {
+    } catch (error) {
+      // One that is there and unsound goes, so the next keep reads the file again.
+      // SAFETY: what fails here is an Error: the file system's with a code, the checks' with none.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        try {
+          rmSync(path, { force: true, recursive: true });
+        } catch {
+          // A file that cannot be removed is read past again by `read`.
+        }
+      }
+
       return undefined;
     }
   }

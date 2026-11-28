@@ -26,9 +26,10 @@ import {
   type AdditionsPlan,
   type DrawnSpace,
 } from "./additions.ts";
-import { STANDARD_STAND_IN } from "./file-tables.ts";
+import { isStandIn } from "./file-tables.ts";
 import { MARK_FORMAT, markHash } from "./marks.ts";
-import type { Edit } from "./model.ts";
+import { canonicalHandle, EditError, handleNumber, type Edit } from "./model.ts";
+import { indexRead } from "./reach.ts";
 import { replacement, type Replacement } from "./replaced.ts";
 
 /** One space's additions, as the read of the edited file holds them. */
@@ -121,7 +122,7 @@ export function startsOf(added: Added): Map<string, Point> {
   return out;
 }
 
-const standIn = (name: string): boolean => layerKey(name).startsWith(layerKey(STANDARD_STAND_IN));
+const standIn = isStandIn;
 
 /** A census of a space's additions in the file's terms. */
 const censusIn = (census: ReadCensus, space: DrawnSpace): ReadCensus => inFile(census, space);
@@ -258,6 +259,35 @@ export function addedOf(read: DrawingRead, edit: Edit, file: AdditionsFile): Add
   };
 }
 
+/** A handle the read shows at or above the file's seed, or undefined. */
+function handleAtSeed(read: DrawingRead, seed: bigint): string | undefined {
+  const index = indexRead(read);
+
+  const lists = [
+    index.byHandle.keys(),
+    index.blocksByHandle.keys(),
+    ...[
+      read.layers,
+      read.linetypes,
+      read.textStyles,
+      read.dimensionStyles,
+      read.leaderStyles ?? [],
+      read.tableStyles,
+      read.xrefs,
+      read.layouts.flatMap((l) => l.viewports),
+    ].map((list) => list.flatMap((x) => (x.handle === undefined ? [] : [x.handle]))),
+  ];
+
+  for (const list of lists)
+    for (const h of list) {
+      const n = handleNumber(h);
+
+      if (n !== undefined && n >= seed) return canonicalHandle(h);
+    }
+
+  return undefined;
+}
+
 /**
  * What the read tells of the file the additions go into: its seed, the names its tables hold, and
  * its layouts. A record the read does not list, such as an application's, is taken to be absent;
@@ -301,10 +331,20 @@ export function readAdditionsFile(read: DrawingRead): AdditionsFile {
   ])
     records.set(`${name}:`, "?");
 
-  const seed = read.header.handseed;
+  const seed = read.header.handseed === undefined ? undefined : handleNumber(read.header.handseed);
+
+  // `lintEdit` refuses additions to a file with no seed, as it tells of no free handle.
+  if (seed === undefined || seed === 0n)
+    throw new EditError("The file states no $HANDSEED, which an addition's handle is counted from");
+  const taken = handleAtSeed(read, seed);
+
+  if (taken !== undefined)
+    throw new EditError(
+      `The file's $HANDSEED, ${read.header.handseed}, is not above its handle ${taken}, so an addition's handle could be one the file holds`,
+    );
 
   return {
-    handseed: seed === undefined ? 0n : BigInt(`0x${seed}`),
+    handseed: seed,
     record: (table, name) => records.get(`${table}:${name}`),
     space: (layout) =>
       layout === undefined

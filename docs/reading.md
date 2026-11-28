@@ -88,7 +88,9 @@ states and keeps each object's handle, and it keeps going past what it does not 
   viewports and its inserts. A viewport has its rectangle on the paper, the center and height
   of the model space it shows, `ratio`, which is paper units per model unit, its twist, and
   the layers frozen in it alone. The viewport each layout keeps for its whole paper is left
-  out. An insert has its point, scale, rotation and layer, and whether it sets each attribute.
+  out. Where layouts name one paper space, the first in the file shows it, and each other shows
+  nothing and is counted under `unread.malformed`. An insert has its point, scale, rotation and
+  layer, and whether it sets each attribute.
 - `fields`: the field codes of `MTEXT` that the file's name, the layout's name and the date
   come from, `\AcVar Filename`, `\AcVar ctab` or a DIESEL expression that reads `CTAB`, and
   `\AcVar Date`, with the `MTEXT`'s point, height and width. `otherFields` counts the other
@@ -139,7 +141,8 @@ leader:
 - `dimension`: a linear or aligned dimension, with its two points, the point where its dimension
   line meets its second extension line, its direction, the middle of its text, what it measures,
   its text and the words below its line, which the file holds after `\X`, its style and the
-  block of its picture.
+  block of its picture. A `\X` after a backslash that escapes it is part of the text, and a text
+  of `<>` alone is the measurement, which the read leaves out.
 - `radial-dimension`: a radius, a diameter or a jogged radius dimension, its `type`, with its
   center, the point of the circle or arc its line meets, a jogged one's start and jog, the
   middle of its text, `placed` where the file holds the text where it was placed, what it
@@ -167,7 +170,9 @@ leader:
   does not, in `textStyle`. `attachments` says where a landing meets each side of the note,
   `vertical` that its landings meet the note's top or bottom, `frame` that a frame goes around the
   note, and `mask` that a mask is behind it: the drawing's background, or the color index `color`,
-  over the note's box grown by `offsetFactor` times its height less one. A block as its content
+  over the note's box grown by `offsetFactor` times its height less one. `boxHeight` is the height
+  of the note's box as the file stores it, when above 0: the leading CAD app sizes the mask by it,
+  and a box stored taller than the note hides what lies below. A block as its content
   has `text` `""`, `textAt` at the block, and `block`: its `name`, `at`, `scale`, `rotation` in
   degrees, and `attributes`, the value each of its labels gives, by the tag of the attribute
   definition it fills. A label whose definition the read does not hold is left out, and at most
@@ -320,9 +325,10 @@ What the spaces draw counts against one budget, `GEOMETRY_ITEMS`, 400,000 items,
 against `BLOCK_ITEMS`. An entity is one item, and each of its points, each bulge and pair of
 widths of a polyline's sides, each attribute and tag, and each 32 characters of its names and its
 text one more. What comes past a budget is counted under `past the limit` in its space's or
-block's `other`. A read of a DXF of more than 500 MB that
-reaches `GEOMETRY_ITEMS` and every census list answers in about 110 MB of JSON, within the
-128 MB the command takes.
+block's `other`. A file of more than `CENSUS_LIMIT` layers, linetypes, text styles, dimension
+styles, block records, blocks, xrefs, spaces or layouts is a `ReadError`. A read of a DXF of more
+than 500 MB that reaches `GEOMETRY_ITEMS` and every census list answers in about 110 MB of JSON,
+within the 128 MB the command takes.
 
 Points and angles are in the world's coordinates: an entity drawn seen from below, as a
 mirrored block's arcs and inserts are, is turned into them. An entity in another plane is counted
@@ -394,9 +400,10 @@ layer, block name or tag is longer than the 2,049 characters a DXF value holds i
 file: model space, or with `layout` the sheet as it plots, with its viewports, their scale, twist
 and frozen layers, at the layout's plot style table where tsdraft has it and at `acad.ctb` where
 the layout names none. It takes the options a drawing's picture takes, and two more: `xrefs`, the
-read each xref stands for, by its name, drawn with the states of its layers the host holds as
-`XREF|LAYER`; and `pageSizes`, the size in inches of each page the underlays show, by path and
-page, as `pdfPageSize` reads it.
+read each xref stands for, by its name in any case, drawn with the states of its layers the host
+holds as `XREF|LAYER`; and `pageSizes`, the size in inches of each page the underlays show, by
+path and page, as `pdfPageSize` reads it. A read given for an xref that is not a `DrawingRead`,
+as `checkDrawingRead` says, draws nothing and is counted in the notes.
 
 Each kind the readers keep is drawn by the code that draws a drawing's:
 

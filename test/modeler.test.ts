@@ -234,3 +234,23 @@ test("edgesInPlan draws each edge as it shows from above", () => {
     assert.ok(Math.abs(Math.abs(line.to[0] - line.from[0]) - 4) < 1e-12);
   }
 });
+
+test("edgesInPlan draws an edge whose parameters are a whole turn apart whole", () => {
+  const edge = {
+    kind: "ellipse",
+    center: [0, 0, 0],
+    normal: [0, 0, 1],
+    startParameter: 0,
+    endParameter: 360,
+  } as const;
+
+  assert.deepEqual(
+    edgesInPlan(
+      solid([
+        { ...edge, majorAxis: [1, 0, 0], ratio: 1 },
+        { ...edge, majorAxis: [2, 0, 0], ratio: 0.5 },
+      ]),
+    ).map((e) => e.kind === "circle" || (e.kind === "ellipse" && e.startParameter === undefined)),
+    [true, true],
+  );
+});

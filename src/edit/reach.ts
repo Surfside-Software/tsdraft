@@ -38,6 +38,11 @@ export interface ReadIndex {
   readonly insertsInBlocks: ReadonlySet<string>;
   /** Each viewport's clip entity, by the clip's handle, and the viewport's. */
   readonly clips: ReadonlyMap<string, string>;
+  /**
+   * Each picture block by its handle, with the handle of the dimension or table whose own it is: a
+   * block of the name the leading CAD app gives a picture, which no other record names.
+   */
+  readonly pictures: ReadonlyMap<string, string>;
 }
 
 const indexes = new WeakMap<DrawingRead, ReadIndex>();
@@ -48,6 +53,17 @@ const handleOf = (h: string | undefined): string | undefined =>
 /** The picture block of a dimension or a table, by the handle of its record. */
 const pictureOf = (e: ReadEntity): string | undefined =>
   "blockHandle" in e && isString(e.blockHandle) && e.kind !== "insert" ? e.blockHandle : undefined;
+
+/** The handle of the picture block a dimension or a table holds as its own, or undefined. */
+export function ownPicture(index: ReadIndex, e: ReadEntity): string | undefined {
+  const picture = handleOf(pictureOf(e));
+
+  return picture !== undefined &&
+    e.handle !== undefined &&
+    index.pictures.get(picture) === canonicalHandle(e.handle)
+    ? picture
+    : undefined;
+}
 
 /** The index of a read's handles, made once for each read. */
 export function indexRead(read: DrawingRead): ReadIndex {
@@ -112,16 +128,39 @@ export function indexRead(read: DrawingRead): ReadIndex {
     if (h !== undefined) blocksByHandle.set(h, block);
   }
 
-  // A picture's entities are its dimension's or its table's; any other block's are its own.
+  // A picture's entities are its dimension's or its table's, where it alone names the picture;
+  // any other block's are its own.
   const pictures = new Map<string, string>();
+  const sharedPictures = new Set<string>();
+  const inserted = new Set<string>();
 
-  for (const at of byHandle.values()) {
-    if (at.kind !== "entity") continue;
-    const picture = pictureOf(at.entity);
-    const of = handleOf(at.entity.handle);
+  const named = (e: ReadEntity): void => {
+    if (e.kind === "insert") inserted.add(layerKey(e.block));
+    const picture = handleOf(pictureOf(e));
+    const of = handleOf(e.handle);
 
-    if (picture !== undefined && of !== undefined) pictures.set(canonicalHandle(picture), of);
+    if (picture === undefined || of === undefined) return;
+
+    if (pictures.has(picture)) sharedPictures.add(picture);
+    else pictures.set(picture, of);
+  };
+
+  for (const at of byHandle.values()) if (at.kind === "entity") named(at.entity);
+
+  for (const block of read.blocks) for (const e of block.entities) named(e);
+
+  for (const block of read.blocks) {
+    const h = handleOf(block.handle);
+
+    if (
+      h !== undefined &&
+      pictures.has(h) &&
+      (inserted.has(layerKey(block.name)) || !/^\*[DT]/i.test(block.name))
+    )
+      sharedPictures.add(h);
   }
+
+  for (const h of sharedPictures) pictures.delete(h);
 
   for (const block of read.blocks) {
     const h = handleOf(block.handle);
@@ -140,7 +179,7 @@ export function indexRead(read: DrawingRead): ReadIndex {
       }
   }
 
-  const index = { byHandle, blocks, blocksByHandle, inserts, insertsInBlocks, clips };
+  const index = { byHandle, blocks, blocksByHandle, inserts, insertsInBlocks, clips, pictures };
   indexes.set(read, index);
 
   return index;
@@ -192,12 +231,13 @@ export function reachOf(
 
       if (e.kind === "insert")
         for (const a of e.attributes ?? []) if (a.handle) out.push(canonicalHandle(a.handle));
+
       // A table's picture is in the table's own coordinates, and moves with it as it stands; a
       // dimension's is in the world's.
-      const picture = statement.kind !== "erase" && e.kind === "table" ? undefined : pictureOf(e);
+      const picture =
+        statement.kind !== "erase" && e.kind === "table" ? undefined : ownPicture(index, e);
 
-      const block =
-        picture === undefined ? undefined : index.blocksByHandle.get(canonicalHandle(picture));
+      const block = picture === undefined ? undefined : index.blocksByHandle.get(picture);
 
       for (const p of block?.entities ?? []) if (p.handle) out.push(canonicalHandle(p.handle));
     } else if (at?.kind === "viewport" && at.viewport.clipBy !== undefined) {

@@ -13,8 +13,9 @@ import {
 } from "./additions.ts";
 import { groupsOf, shortest, type HeldGroup } from "./dxf-groups.ts";
 import { MARK_FORMAT, markGroups, type Marks } from "./marks.ts";
-import { EditError } from "./model.ts";
+import { canonicalHandle, EditError, handleNumber } from "./model.ts";
 import { layerKey } from "../layers.ts";
+import { isStandIn } from "./file-tables.ts";
 
 /** What the additions make of the file: records to put before others, and records changed. */
 export interface AddedRecords {
@@ -107,16 +108,31 @@ export function dxfAdditionsFile(
   }
 
   const header = doc.header().find((v) => v.name === "$HANDSEED");
-  let handseed = 0n;
+  let handseed: bigint | undefined;
 
   if (header) {
     const text = new TextDecoder("latin1").decode(
       bytes.subarray(header.start, header.start + header.length),
     );
 
-    const m = /\n\s*5\r?\n\s*([0-9A-Fa-f]{1,16})/.exec(text);
+    const m = /\n\s*5\r?\n\s*([0-9A-Fa-f]{1,16})\s*(?:\n|$)/.exec(text);
 
-    if (m) handseed = BigInt(`0x${m[1]}`);
+    if (m) handseed = handleNumber(m[1]!);
+  }
+
+  if (handseed === undefined || handseed === 0n)
+    throw new EditError(
+      "The file's header holds no $HANDSEED, which an addition's handle is counted from",
+    );
+
+  for (let i = 0; i < doc.count; i++) {
+    const h = doc.handle(i);
+    const n = h === undefined ? undefined : handleNumber(h);
+
+    if (n !== undefined && n >= handseed)
+      throw new EditError(
+        `The file's $HANDSEED, ${handseed.toString(16).toUpperCase()}, is not above its handle ${canonicalHandle(h!)}, so an addition's handle could be one the file holds`,
+      );
   }
 
   return {
@@ -145,6 +161,20 @@ export function dxfAdditionsFile(
     groups,
     index,
   };
+}
+
+/**
+ * The text of a record the additions write again, which a file of the 2018 format holds as UTF-8.
+ * Throws an `EditError` for one that is not, whose bytes the text would not give back.
+ */
+function recordText(doc: DxfDocument, i: number, bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new EditError(
+      `The record ${doc.handle(i) ?? i} the additions change is not UTF-8, as the 2018 format holds its text`,
+    );
+  }
 }
 
 /** A group as the leading CAD app writes one: its code right-aligned in three columns. */
@@ -182,8 +212,7 @@ function inFile(
       // A block's name, which an anonymous block takes anew, and a style's stand-in name.
       v = named(value);
 
-      if (code === 3 && r.kind.endsWith("DIMENSION") && /^TSDRAFT-FILE-STANDARD/i.test(v.trim()))
-        v = "Standard";
+      if (code === 3 && r.kind.endsWith("DIMENSION") && isStandIn(v.trim())) v = "Standard";
     }
 
     // A justified text's start, worked out from its font's widths, as in a DWG.
@@ -323,9 +352,7 @@ export function addedRecords(
     if (own !== undefined) return own;
     const start = doc.starts[i]!;
 
-    return new TextDecoder("utf-8").decode(
-      base.get(i) ?? bytes.subarray(start, start + doc.length(i)),
-    );
+    return recordText(doc, i, base.get(i) ?? bytes.subarray(start, start + doc.length(i)));
   };
 
   for (const p of plan.patches) {
@@ -485,9 +512,7 @@ export function addRecord(
     if (own !== undefined) return own;
     const start = doc.starts[i]!;
 
-    return new TextDecoder("utf-8").decode(
-      base.get(i) ?? bytes.subarray(start, start + doc.length(i)),
-    );
+    return recordText(doc, i, base.get(i) ?? bytes.subarray(start, start + doc.length(i)));
   };
 
   const put = (at: number | undefined, t: string, what: string): void => {
@@ -580,6 +605,22 @@ export function addRecord(
   }
 
   return { before, patched };
+}
+
+/** A record's bytes with the value of its `$HANDSEED` written again, or undefined for one with none. */
+export function withHandseedIn(record: Uint8Array, text: string): Uint8Array | undefined {
+  const held = new TextDecoder("latin1").decode(record);
+  const m = /(\$HANDSEED\r?\n\s*5\r?\n)(\s*)([0-9A-Fa-f]{1,16})/.exec(held);
+
+  if (!m) return undefined;
+  const at = m.index + m[1]!.length + m[2]!.length;
+  const value = new TextEncoder().encode(text);
+  const out = new Uint8Array(record.length - m[3]!.length + value.length);
+  out.set(record.subarray(0, at));
+  out.set(value, at);
+  out.set(record.subarray(at + m[3]!.length), at + value.length);
+
+  return out;
 }
 
 /** The header with `$HANDSEED` written again, or undefined for a file whose header names none. */
