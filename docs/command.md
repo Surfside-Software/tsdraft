@@ -42,7 +42,7 @@ every build sees the code as it is now. A build that runs longer than `--timeout
 
 ## Commands
 
-`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot] [--pdf]` builds once, runs `lint`,
+`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot] [--pdf] [--drawing-json]` builds once, runs `lint`,
 with the file's export `standard` when it has one,
 `inspectText` and, for a file that exports `intent`, `checkIntent`, writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the
 file, and prints one JSON object. With `--view`, it writes one rectangle of the drawing and
@@ -95,6 +95,41 @@ the set is then not plotted either, and the run goes on with its exit code as it
 build that left out what `lint` refused, which `drawing.omitted` lists, is not plotted. Each
 plot runs in a process of its own, one at a time, which ends at two minutes. `--pdf` does not go with `--view`
 or `--draw-no-plot`, and without it every PDF is `null`.
+
+With `--drawing-json`, `render` also writes the drawing itself, `<name>.drawing.json` in
+`outputs.drawingJson`: the default export of the drawing file as `toJSON` writes it, which
+`fromJSON` reads back as the same drawing. It is the drawing as data, without the code that built
+it, for a program that takes a drawing in and gives a file of another kind back, for storage, or
+for a check that two versions of a file still build the same drawing. It is the whole drawing,
+with `--view` too, and holds every path and every text the drawing holds: the names of its files,
+its notes and its title block's fields. `toJSON` writes canonical JSON, so the same drawing always
+gives the same bytes. The copy of tsdraft the drawing file imports writes it, as it checks and
+draws the drawing, and the file is written to a temporary name beside it and then renamed, so it
+is never found half written.
+
+The file is written only when it will read back as it is, and where it is read:
+
+- the build reported no error, and `lint` checked the whole drawing, with no `check-capped`;
+- every value of the drawing is plain data: no getter, no proxy, no field `Object.keys` leaves
+  out, no symbol key, no field of a list but its items, and no instance of a class, each of
+  which the JSON would hold as it read once, or not at all;
+- every file the drawing names, an image's, an underlay's, an xref's and a linetype's shape file,
+  whatever the copy of tsdraft calls the mark's shape, has a path from the drawing file's folder
+  that stays inside the project folder, the nearest one above with a `package.json`, or the
+  drawing file's own where there is none, both as written and through every link on the way; an
+  absolute path, a drive and a URL such as `file:` or `https:` are refused;
+- `fromJSON` of the drawing's copy of tsdraft reads the bytes back, and `toJSON` writes the
+  drawing it gives as the same bytes.
+
+Otherwise, and for a DXF, a DWG, an edit file and a build that failed, `outputs.drawingJson` is
+`null` and `outputs.drawingJsonError` says why. The exit code is the one the build gives, and 1
+when the file cannot be written. With the flag the command owns `<name>.drawing.json` in the out
+folder, `--out`'s too: a run that writes none removes one from an earlier run. Without the flag
+both fields are missing, and only the default `out/` folder loses an earlier run's file.
+
+Read the file with `fromJSON` of the version of tsdraft that wrote it, the one the drawing file
+imports, or of a later one that still reads its drawing format. Since 0.6.0, `fromJSON` refuses
+the older `shape` of a linetype's mark, which a mark now gives as `glyph`.
 
 `tsdraft dev <file> [--port <n>]` serves a live preview at `http://127.0.0.1:4610`, or the next
 free port when that one is taken. It rebuilds when you save the file or any file it imports,
@@ -162,7 +197,7 @@ pictures as images, 2 unless `images` says another number from 0 to 8: the view,
 pictures of changes, then each layout's sheet, then model space. Only those pictures get a PNG,
 and each other picture has its SVG alone, with a `png` of `null`, and in the whole BuildState a
 `pngError` that says it was not drawn. Its options
-are the flags of `render`: `view`, `layout`, `pdf`, `drawNoPlot`, `width`, `timeout` and `reader`,
+are the flags of `render`: `view`, `layout`, `pdf`, `drawingJson`, `drawNoPlot`, `width`, `timeout` and `reader`,
 held to the same rules. The brief gives:
 
 | Field         | What it is                                                                                   |
@@ -176,6 +211,7 @@ held to the same rules. The brief gives:
 | `more`        | How many diagnostics `diagnostics` leaves out                                                |
 | `pictures`    | Each picture, what it `shows`, its `svg` and `png` paths, and `attached` when it is an image |
 | `pdf`, `log`  | The set's PDF, with `pdf`, and the end of what the drawing file printed                      |
+| `drawingJson` | The drawing's JSON, with `drawingJson`, or `drawingJsonError`, why it was not written        |
 
 `execute` runs a JavaScript program, the body of an async function, in a process of its own, and
 answers with only what the program returns: a build of a whole set never passes through the
@@ -308,7 +344,8 @@ the rectangle shows it, and a rectangle that misses every viewport shows the she
 entities alone. A layout the drawing does not have fails the build, with exit code 1.
 
 Give `--view` the `bounds` of a diagnostic, a little larger, to see what the diagnostic is
-about, and read a sheet's title block and notes with it. `tsdraft dev` has no such flag: its
+about, and read a sheet's title block and notes with it. `--view` limits only the pictures:
+with `--drawing-json` the run still writes the whole drawing as JSON. `tsdraft dev` has no such flag: its
 page pans and zooms.
 
 ## Images

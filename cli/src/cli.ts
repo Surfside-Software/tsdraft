@@ -20,7 +20,8 @@ if (major < 22 || (major === 22 && minor < 18) || (major === 23 && minor < 6)) {
 
 const HELP = `Usage:
   tsdraft render <file> [--out <dir>] [--width <px>] [--timeout <ms>] [--pdf]
-                        [--draw-no-plot] [--view <x0,y0,x1,y1> [--layout <name>]]
+                        [--drawing-json] [--draw-no-plot]
+                        [--view <x0,y0,x1,y1> [--layout <name>]]
   tsdraft dev <file> [--port <n>] [--timeout <ms>] [--draw-no-plot]
   For a DXF, a DWG or an edit file, either takes [--reader <package or folder>]
   tsdraft shows <drawing file> [--sheet <layout> | --layout <layout>]
@@ -60,6 +61,8 @@ render  Builds the file once, writes <name>.svg and <name>.png to --out (default
         With --pdf it also plots the sheets: <name>.pdf, the set, a page for each
         layout in order, as outputs.pdf, and <name>.layout-<layout>.pdf for each
         sheet alone, as outputs.layouts[].pdf.
+        With --drawing-json it also writes <name>.drawing.json, the whole drawing
+        as toJSON writes it, which fromJSON reads back, as outputs.drawingJson.
 shows   Reads a DXF, or a file of another format through its reader, and prints
         as JSON what it shows: with --sheet, the layout's paper and what each
         viewport that is on shows of model space, through inserts and xrefs, with
@@ -116,9 +119,18 @@ write   Makes the edited copy of the file each edit file names, and prints the
 --view     With render, draws one rectangle and nothing else, as <name>.view.svg
            and .png, listed in outputs.view: from its lower-left corner x0,y0
            to its upper-right x1,y1, in drawing units of model space. Use it to
-           read small text, and give it the bounds of a diagnostic.
+           read small text, and give it the bounds of a diagnostic. It limits
+           only the pictures: --drawing-json still writes the whole drawing.
 --layout   With --view, the rectangle is on this layout's sheet, in paper units.
 --pdf      With render, plots the sheets to PDF as well, as listed above.
+--drawing-json  With render, writes the drawing of a drawing file as JSON as
+           well, as listed above, with every path and text it holds. The same
+           drawing gives the same bytes. None is written, and one from an earlier
+           run is removed, when the build reports an error, when the drawing
+           holds a value that is not plain data or names a file by an absolute
+           path or one outside the project, when its JSON does not read back as
+           the same bytes, and for a DXF, a DWG or an edit file:
+           outputs.drawingJsonError says why.
 --draw-no-plot  Draws the layers that do not plot too. The pictures leave them
            out by default, as a plot does.
 --reader   The package that reads a DWG, an edit file's among them, by its name in
@@ -170,6 +182,7 @@ try {
       timeout: { type: "string" },
       "draw-no-plot": { type: "boolean" },
       pdf: { type: "boolean" },
+      "drawing-json": { type: "boolean" },
       view: { type: "string" },
       layout: { type: "string" },
       sheet: { type: "string" },
@@ -286,6 +299,8 @@ if (command === "feedback") {
 for (const flag of FEEDBACK_FLAGS) {
   if (values[flag] !== undefined) usage(`--${flag} goes with feedback.`);
 }
+
+if (values["drawing-json"] && command !== "render") usage("--drawing-json goes with render.");
 
 if (command === "mcp") {
   if (positionals.length > 1 || Object.keys(values).length > 0) usage("mcp takes nothing more.");
@@ -408,6 +423,7 @@ if (command === "dev") {
     timeout,
     warm: false,
     drawNoPlot: values["draw-no-plot"] === true,
+    drawingJson: values["drawing-json"] === true,
     ...(values.reader !== undefined && { reader: values.reader }),
     view:
       view && (values.layout === undefined ? { box: view } : { box: view, layout: values.layout }),
@@ -418,6 +434,7 @@ if (command === "dev") {
     closeBuilder: true,
     width,
     pdf: values.pdf === true,
+    drawingJson: values["drawing-json"] === true,
     ...(values.out !== undefined && { out: values.out }),
     ...(view !== undefined && { view }),
   });

@@ -75,6 +75,7 @@ export class Builder {
    */
   readonly #spares: Child[] = [];
   readonly #view: BuildRequest["view"];
+  readonly #drawingJson: boolean;
   /** The package that reads a DWG, as `--reader` names it. */
   readonly #reader: string | undefined;
   /** Whether an edit's pictures of changes are drawn with each build, or when asked for. */
@@ -116,6 +117,8 @@ export class Builder {
     view?: BuildRequest["view"];
     /** The package that reads a DWG, by its name in the project or its folder. */
     reader?: string;
+    /** Writes the drawing of a drawing file as `toJSON` gives it, with each build. */
+    drawingJson?: boolean;
     /** Draws an edit's pictures of changes only when `changes` asks for them. */
     changesLater?: boolean;
   }) {
@@ -123,6 +126,7 @@ export class Builder {
     this.#changesLater = options.changesLater === true;
     this.#drawNoPlot = options.drawNoPlot === true;
     this.#view = options.view;
+    this.#drawingJson = options.drawingJson === true;
     this.#timeout = options.timeout;
     this.#warm = options.warm;
     this.#warmDeadline = options.warmDeadline ?? WARM_DEADLINE;
@@ -156,6 +160,7 @@ export class Builder {
             root,
             drawNoPlot: this.#drawNoPlot,
             view: this.#view,
+            ...(this.#drawingJson && { drawingJson: true }),
             ...(this.#reader !== undefined && { reader: this.#reader, cwd: process.cwd() }),
           },
           started,

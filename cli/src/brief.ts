@@ -2,6 +2,7 @@
 // whole BuildState of a set of sheets can be a hundred thousand. `tsdraft mcp` answers `render`
 // with it, and a program `execute` runs can make one from any state.
 import { relative } from "node:path";
+import { isString } from "./guards.ts";
 import { PNG_SKIPPED } from "./render.ts";
 import type { BuildDiagnostic, BuildState, Box, XrefSummary } from "./state.ts";
 
@@ -42,6 +43,9 @@ export interface Brief {
   readonly pictures: readonly Picture[];
   readonly pdf?: string;
   readonly pdfError?: string;
+  /** The drawing as `toJSON` writes it, when asked for, or why it is not written. */
+  readonly drawingJson?: string;
+  readonly drawingJsonError?: string;
   /** The end of what the drawing file printed. */
   readonly log?: string;
 }
@@ -149,6 +153,8 @@ export function brief(state: BuildState, code: 0 | 1 | 2, cwd: string): Brief {
     pictures,
     ...(outputs.pdf !== null && { pdf: near(outputs.pdf) }),
     ...(outputs.pdfError !== null && { pdfError: outputs.pdfError }),
+    ...(isString(outputs.drawingJson) && { drawingJson: near(outputs.drawingJson) }),
+    ...(isString(outputs.drawingJsonError) && { drawingJsonError: outputs.drawingJsonError }),
     ...(log !== "" && { log: log.length > BRIEF_LOG ? `…${log.slice(-BRIEF_LOG)}` : log }),
   };
 }

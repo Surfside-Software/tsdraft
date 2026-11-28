@@ -89,6 +89,9 @@ export interface BuildState {
    * the pictures of the layouts. `render` writes it with `--pdf`, and `dev` makes it when it is
    * asked for. It is `null` for a drawing with no layout, and from `render` without `--pdf`.
    * `pdfError` says why there is no PDF where one was asked for, and is otherwise `null`.
+   *
+   * `drawingJson` is the drawing as `toJSON` writes it, which `render --drawing-json` writes, and
+   * `drawingJsonError` says why it is `null`. Both are missing from every other run.
    */
   readonly outputs: {
     readonly svg: string | null;
@@ -99,6 +102,8 @@ export interface BuildState {
     readonly view: ViewOutput | null;
     readonly pdf: string | null;
     readonly pdfError: string | null;
+    readonly drawingJson?: string | null;
+    readonly drawingJsonError?: string | null;
     /** For an edit file, the pictures of what its edit changes; `null` for any other. */
     readonly changes: ChangesOutput | null;
   };

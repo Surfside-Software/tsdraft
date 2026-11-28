@@ -152,6 +152,7 @@ To hand over the sheets, run `npx tsdraft render plan.ts --pdf`: it writes the s
 the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet the PNG shows,
 with each TrueType font embedded from the file the PNG is set in. `outputs.layouts[].pdfFonts`
 names it, and says `Helvetica`, `Times-Roman` or `Courier` where the machine has no file.
+To hand over the drawing itself as data, add `--drawing-json`: it writes `plan.drawing.json`, which `fromJSON` reads back, at `outputs.drawingJson`, or says in `outputs.drawingJsonError` why not.
 
 ### Through MCP
 

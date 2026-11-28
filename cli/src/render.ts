@@ -1,7 +1,7 @@
 // `tsdraft render`, as a function: builds a drawing file once, writes its pictures and gives the
 // BuildState and the exit code. The command prints it, and `tsdraft mcp` serves it.
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { type Builder, projectRoot, round, toState } from "./build.ts";
 import { faces, pdfFonts, pngFonts } from "./fonts.ts";
@@ -20,6 +20,8 @@ export interface RenderOptions {
   /** The folder the pictures go to. Without it, an out folder beside the file, which is the command's own. */
   readonly out?: string;
   readonly pdf: boolean;
+  /** Writes the drawing as `toJSON` gives it. The builder must have been made with `drawingJson`. */
+  readonly drawingJson?: boolean;
   /** The one rectangle to draw, as x0, y0, x1, y1. */
   readonly view?: readonly [number, number, number, number];
   /**
@@ -117,6 +119,20 @@ export async function render(file: string, options: RenderOptions): Promise<Rend
   const dir = resolve(options.out ?? join(file, "..", "out"));
   const name = basename(file, extname(file));
   let path = dir;
+  const given = options.drawingJson && outcome.ok ? outcome.drawingJson : undefined;
+
+  if (options.drawingJson) {
+    outputs.drawingJson = null;
+
+    outputs.drawingJsonError =
+      given === undefined
+        ? outcome.ok
+          ? "Only a drawing file, whose default export is a Drawing, is written as JSON: not a DXF, a DWG or an edit file"
+          : "The build failed, so there is no drawing to write as JSON"
+        : "error" in given
+          ? given.error
+          : null;
+  }
 
   try {
     if (outcome.ok && outcome.view && view) {
@@ -289,6 +305,41 @@ export async function render(file: string, options: RenderOptions): Promise<Rend
     failed = outputError(`Could not write ${path}`, error);
   }
 
+  // With the flag the command owns <name>.drawing.json in any folder: it is this run's or gone.
+  if (options.drawingJson) {
+    const to = join(dir, `${name}.drawing.json`);
+
+    if (given !== undefined && "json" in given) {
+      const temporary = join(dir, `.${name}.drawing.json.${randomUUID().slice(0, 8)}`);
+
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(temporary, given.json);
+        renameSync(temporary, to);
+        outputs.drawingJson = to;
+      } catch (error) {
+        try {
+          rmSync(temporary, { force: true });
+        } catch {
+          // Where the file could not be written, as in an out folder that is a file, there is
+          // none to remove, and the error that says why is the write's.
+        }
+
+        const written = outputError(`Could not write ${to}`, error);
+        failed ??= written;
+        outputs.drawingJsonError = written.message;
+      }
+    }
+
+    if (outputs.drawingJson === null) {
+      try {
+        rmSync(to, { force: true });
+      } catch (error) {
+        failed ??= outputError(`Could not remove the old ${to}`, error);
+      }
+    }
+  }
+
   // Only the default folder belongs to the command. A file in --out may be the user's.
   if (options.out === undefined) {
     const removeOld = (old: string): void => {
@@ -307,6 +358,7 @@ export async function render(file: string, options: RenderOptions): Promise<Rend
       "changes.svg": outputs.changes?.svg ?? null,
       "changes.png": outputs.changes?.png ?? null,
       pdf: outputs.pdf,
+      "drawing.json": outputs.drawingJson ?? null,
     })) {
       if (written === null) removeOld(join(dir, `${name}.${kind}`));
     }
@@ -317,7 +369,16 @@ export async function render(file: string, options: RenderOptions): Promise<Rend
         ...(outputs.changes?.layouts ?? []).flatMap((made) => [made.svg, made.png]),
       ]);
 
-      for (const entry of readdirSync(dir)) {
+      let entries: string[] = [];
+
+      try {
+        entries = readdirSync(dir);
+      } catch (error) {
+        // An out/ that is a file holds no old pictures, and the write said why none is there.
+        if (outcome.ok) failed ??= outputError(`Could not read ${dir}`, error);
+      }
+
+      for (const entry of entries) {
         if (!entry.startsWith(`${name}.layout-`) || !/\.(svg|png|pdf)$/.test(entry)) continue;
         const old = join(dir, entry);
 

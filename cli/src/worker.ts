@@ -11,7 +11,7 @@
 // `stale` and the parent builds in one that loaded nothing.
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createRequire, isBuiltin, registerHooks } from "node:module";
-import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { types } from "node:util";
 import { Worker } from "node:worker_threads";
@@ -77,6 +77,8 @@ export interface BuildRequest {
   readonly view?:
     | { readonly box: readonly [number, number, number, number]; readonly layout?: string }
     | undefined;
+  /** Writes the drawing of a drawing file as `toJSON` gives it, in `drawingJson`. */
+  readonly drawingJson?: boolean;
 }
 
 /** What the build of an edit file gives: its edit, as data, and the file it names. */
@@ -234,6 +236,11 @@ export interface WorkerResult {
   };
   /** For an edit file drawn without them, the preview whose pictures of changes can be asked for. */
   readonly changesLater?: number;
+  /**
+   * For a drawing file whose build was asked for it: the drawing as `toJSON` writes it, or why
+   * it is not written.
+   */
+  readonly drawingJson?: { readonly json: string } | { readonly error: string };
 }
 
 /** How long each step of a build took, in milliseconds. */
@@ -351,6 +358,9 @@ interface Library extends OlderShxKey {
   /** A copy of tsdraft from before standards has none, and its `lint` takes no standard. */
   readonly defineStandard?: unknown;
   readonly toSVG: (drawing: Drawing, options?: PictureOptions) => string;
+  /** The drawing as canonical JSON, and the drawing read from it. A copy from before them has neither. */
+  readonly toJSON?: (drawing: Drawing) => string;
+  readonly fromJSON?: (json: string) => Drawing;
   /**
    * The key a shape file is found by. A copy of tsdraft from before the SHX names has
    * `OLDER_SHX.key` in its place, and one from before shapes has neither.
@@ -1334,7 +1344,7 @@ async function buildRead({
 }
 
 async function buildCode(request: BuildRequest): Promise<WorkerResult> {
-  const { file, root, drawNoPlot, view } = request;
+  const { file, root, drawNoPlot, view, drawingJson } = request;
   const timings: Timings = {};
 
   const fail = (error: BuildError, cause?: unknown): WorkerResult => ({
@@ -1594,6 +1604,9 @@ async function buildCode(request: BuildRequest): Promise<WorkerResult> {
         error: null,
         library: entry,
         modules,
+        ...(drawingJson === true && {
+          drawingJson: jsonOf(library, drawing, diagnostics, file, root),
+        }),
       };
     };
 
@@ -1621,6 +1634,202 @@ async function buildCode(request: BuildRequest): Promise<WorkerResult> {
   } catch (thrown) {
     // The drawing is malformed in a way `lint` cannot get past.
     return fail(describe(thrown, root), thrown);
+  }
+}
+
+/**
+ * The drawing as the library's `toJSON` writes it, or why it is not written. It is written only
+ * when the build reported no error and `lint` checked the whole drawing, when every value of it
+ * is plain data, when every file it names is found from the drawing file's folder inside the
+ * project, and when `fromJSON` reads the bytes back as a drawing `toJSON` writes as the same bytes.
+ */
+function jsonOf(
+  library: Library,
+  drawing: Drawing,
+  diagnostics: readonly BuildDiagnostic[],
+  file: string,
+  root: string,
+): NonNullable<WorkerResult["drawingJson"]> {
+  if (diagnostics.some((d) => d.severity === "error")) {
+    return { error: "The build reported errors, so the drawing is not written as JSON" };
+  }
+
+  if (diagnostics.some((d) => d.rule === "check-capped")) {
+    return {
+      error:
+        "lint stopped before the end of the drawing (check-capped), so the drawing is not written as JSON",
+    };
+  }
+
+  if (library.toJSON === undefined || library.fromJSON === undefined) {
+    return {
+      error:
+        "The copy of tsdraft this drawing imports is from before toJSON and fromJSON and cannot write the drawing as JSON. Update it",
+    };
+  }
+
+  const problem = notPortable(drawing, file, root);
+
+  if (problem !== undefined) return { error: `${problem}, so the drawing is not written as JSON` };
+
+  try {
+    const json = library.toJSON(drawing);
+
+    if (library.toJSON(library.fromJSON(json)) !== json) {
+      return {
+        error:
+          "The drawing's JSON reads back as another drawing, so the drawing is not written as JSON",
+      };
+    }
+
+    return { json };
+  } catch (thrown) {
+    const reason = thrown instanceof Error ? thrown.message : String(thrown);
+
+    return { error: `The drawing cannot be written as JSON that reads back: ${reason}` };
+  }
+}
+
+/**
+ * Why the drawing would not read back from its JSON as it is, or would not where it is read, or
+ * `undefined`. A value that is not plain data, as a getter, a proxy, a key `Object.keys` does not
+ * give, a symbol, a named field of a list or an instance of a class, is written as it reads at that
+ * moment, or not at all. A file the drawing names by an absolute path, a URL or a drive, or by a
+ * path that leads out of the project as written or through a link, is found only on this machine.
+ * Each object is looked at once, however many times the drawing holds it.
+ */
+function notPortable(drawing: Drawing, file: string, root: string): string | undefined {
+  const seen = new Set<object>();
+  const left: { readonly value: unknown; readonly at: string }[] = [{ value: drawing, at: "" }];
+  const project = realOf(root);
+
+  const named = (path: string, at: string): string | undefined => {
+    const slashed = path.replaceAll("\\", "/");
+    const shown = `The drawing names ${JSON.stringify(path)} at ${at}`;
+
+    if (slashed.startsWith("/") || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(slashed)) {
+      return `${shown}, an absolute path, a URL or a drive, which is found only on this machine`;
+    }
+
+    if (
+      !within(root, resolve(dirname(file), slashed)) ||
+      !within(project, followed(file, slashed))
+    ) {
+      return `${shown}, which leads out of the project folder ${root}`;
+    }
+
+    return undefined;
+  };
+
+  for (let next = left.pop(); next !== undefined; next = left.pop()) {
+    const { value, at } = next;
+
+    if (!isObject(value) || seen.has(value)) continue;
+    seen.add(value);
+    const where = at || "its top";
+
+    if (types.isProxy(value))
+      return `The drawing holds a proxy at ${where}, which is not plain data`;
+    const list = Array.isArray(value);
+    const kind = Object.getPrototypeOf(value);
+
+    if (list ? kind !== Array.prototype : kind !== Object.prototype && kind !== null) {
+      return `The drawing holds an object that is not plain data at ${where}`;
+    }
+
+    for (const key of Reflect.ownKeys(value)) {
+      if (!isString(key))
+        return `The drawing holds a symbol key at ${where}, which is not plain data`;
+
+      if (list && key === "length") continue;
+
+      if (
+        list &&
+        !(String(Number(key)) === key && Number(key) >= 0 && Number(key) < value.length)
+      ) {
+        return `The drawing holds the list ${where} with a field ${JSON.stringify(key)}, which its JSON would not hold`;
+      }
+
+      const there = list ? `${at}[${key}]` : at === "" ? key : `${at}.${key}`;
+      const field = Object.getOwnPropertyDescriptor(value, key);
+
+      if (field === undefined || !field.enumerable || !("value" in field)) {
+        return `The drawing holds ${there} as a getter or a hidden field, which its JSON would not hold as it reads`;
+      }
+
+      left.push({ value: field.value, at: there });
+    }
+
+    const problem =
+      "kind" in value &&
+      (value.kind === "image" || value.kind === "underlay") &&
+      "path" in value &&
+      isString(value.path)
+        ? named(value.path, `${at}.path`)
+        : undefined;
+
+    if (problem !== undefined) return problem;
+  }
+
+  // A linetype's shape file, under any name a copy of tsdraft gives its shape: `glyph`, or
+  // `OLDER_SHX.glyph` in a copy from before the SHX names.
+  for (const [i, linetype] of (drawing.linetypes ?? []).entries()) {
+    const given: LinetypeFields | null | undefined = linetype;
+    const marks = given?.marks;
+
+    for (const [j, m] of (Array.isArray(marks) ? marks : []).entries()) {
+      const mark: MarkFields | null | undefined = m;
+      const shx = mark?.file;
+
+      const problem = isString(shx) ? named(shx, `linetypes[${i}].marks[${j}].file`) : undefined;
+
+      if (problem !== undefined) return problem;
+    }
+  }
+
+  for (const [i, xref] of (drawing.xrefs ?? []).entries()) {
+    const problem = named(xref.path, `xrefs[${i}].path`);
+
+    if (problem !== undefined) return problem;
+  }
+
+  return undefined;
+}
+
+/** Whether `path` is `folder` or inside it. */
+function within(folder: string, path: string): boolean {
+  const from = relative(folder, path);
+
+  return from !== ".." && !from.startsWith(`..${sep}`) && !isAbsolute(from);
+}
+
+/**
+ * Where `path`, with `/` between its parts, leads from the folder of `file` as the file system
+ * follows it: one part at a time, each link followed before a `..` after it is taken. A part that
+ * is not there is taken as it is written.
+ */
+function followed(file: string, path: string): string {
+  let at = realOf(dirname(file));
+
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    at = part === ".." ? dirname(at) : realOf(join(at, part));
+  }
+
+  return at;
+}
+
+/** The real path of `path`, or of the nearest folder above it that is there, with the rest after it. */
+function realOf(path: string): string {
+  const rest: string[] = [];
+
+  for (let at = path; ; at = dirname(at)) {
+    try {
+      return join(realpathSync(at), ...rest);
+    } catch {
+      if (dirname(at) === at) return path;
+      rest.unshift(basename(at));
+    }
   }
 }
 

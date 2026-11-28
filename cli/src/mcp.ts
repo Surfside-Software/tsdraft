@@ -78,6 +78,7 @@ interface RenderInput {
   readonly layout?: string;
   readonly drawNoPlot: boolean;
   readonly pdf: boolean;
+  readonly drawingJson: boolean;
   readonly width: number;
   readonly timeout: number;
   readonly reader?: string;
@@ -312,12 +313,14 @@ class Builds {
     const common = {
       timeout: input.timeout,
       drawNoPlot: input.drawNoPlot,
+      drawingJson: input.drawingJson,
       ...(input.reader !== undefined && { reader: input.reader }),
     };
 
     const options = {
       width: input.width,
       pdf: input.pdf,
+      drawingJson: input.drawingJson,
       ...(input.pngs !== undefined && { pngs: input.pngs }),
     };
 
@@ -407,6 +410,7 @@ function renderInput(args: Fields): RenderInput {
   const layout = args.get("layout");
   const drawNoPlot = args.get("drawNoPlot") ?? false;
   const pdf = args.get("pdf") ?? false;
+  const drawingJson = args.get("drawingJson") ?? false;
   const width = positive("width", args.get("width") ?? 1600);
   const timeout = positive("timeout", args.get("timeout") ?? DEFAULT_TIMEOUT);
 
@@ -425,6 +429,8 @@ function renderInput(args: Fields): RenderInput {
   if (!isBoolean(drawNoPlot)) throw new InputError("drawNoPlot is true or false.");
 
   if (!isBoolean(pdf)) throw new InputError("pdf is true or false.");
+
+  if (!isBoolean(drawingJson)) throw new InputError("drawingJson is true or false.");
 
   if (layout !== undefined && !isString(layout)) throw new InputError("layout is a layout's name.");
 
@@ -470,6 +476,7 @@ function renderInput(args: Fields): RenderInput {
   return {
     drawNoPlot,
     pdf,
+    drawingJson,
     width,
     timeout,
     ...(box !== undefined && { view: box }),
@@ -939,7 +946,7 @@ function tools(cwd: string): JsonObject[] {
       },
       description: `Builds a drawing file once, as \`tsdraft render\` does, writes its SVG and PNG pictures to an out folder beside it, and answers with a brief of the build as JSON. It runs the drawing file's code with the permissions of the user who started the server, as the command does. The brief comes first, then the first \`images\` pictures as images: a view, then an edit's pictures of its changes, then each layout's sheet, then model space.
 
-The brief: ok; code, as the command exits (0 built with no lint errors, 2 lint reported errors, 1 the build failed); error, with the line to fix, when it failed; units, extents and counts; each layout; rules, every diagnostic counted by its rule; diagnostics, the first ${BRIEF_DIAGNOSTICS}, errors first, each with at, the call in the drawing's code that made it, and bounds, its box in its picture's coordinates; more, how many it leaves out; pictures, each with its PNG path and attached when it is one of the images; pdf; and the end of the file's log. For the whole BuildState, such as every insert or dimension, use execute.
+The brief: ok; code, as the command exits (0 built with no lint errors, 2 lint reported errors, 1 the build failed); error, with the line to fix, when it failed; units, extents and counts; each layout; rules, every diagnostic counted by its rule; diagnostics, the first ${BRIEF_DIAGNOSTICS}, errors first, each with at, the call in the drawing's code that made it, and bounds, its box in its picture's coordinates; more, how many it leaves out; pictures, each with its PNG path and attached when it is one of the images; pdf; drawingJson; and the end of the file's log. For the whole BuildState, such as every insert or dimension, use execute.
 
 Paths are from ${cwd}. Build again after each save.`,
       inputSchema: {
@@ -969,6 +976,11 @@ Paths are from ${cwd}. Build again after each save.`,
             description: `How many pictures to attach as images. Default ${DEFAULT_IMAGES}. 0 for none: the paths are in the brief.`,
           },
           pdf: { type: "boolean", description: "Also plots the sheets to PDF, each and the set." },
+          drawingJson: {
+            type: "boolean",
+            description:
+              "Also writes <name>.drawing.json, the whole drawing as toJSON writes it, with every path and text it holds, which fromJSON reads back. A drawing file only, with no error in the build; drawingJsonError says why none is written.",
+          },
           drawNoPlot: { type: "boolean", description: "Also draws the layers that do not plot." },
           width: { type: "integer", minimum: 1, description: "PNG width in pixels. Default 1600." },
           timeout: {
@@ -999,8 +1011,8 @@ Paths are from ${cwd}. Build again after each save.`,
       },
       description: `Runs a JavaScript program, the body of an async function: use await, and return what you want back. Only what it returns reaches you, so a large build or read never fills your context. It runs in a process of its own, from ${cwd}, with the permissions of the user who started the server: it is no sandbox. It has:
 
-render(file: string, options?: { view?: [x0, y0, x1, y1]; layout?: string; drawNoPlot?: boolean; pdf?: boolean; width?: number; timeout?: number; reader?: string; pngs?: number }): Promise<BuildState>
-  Builds and writes the SVG pictures as the render tool does, and a PNG of the first pngs of them, 0 unless asked, in the order the brief lists the pictures. It gives the whole BuildState that \`tsdraft render\` prints: { ok, file, ms, error, log, diagnostics: [{ severity, rule, message, call, layer, layout, entity, bounds, ... }], drawing: { units, extents, counts, layers, blocks, inserts: [{ entity, block, layer, id, at, scale, rotation, attributes }], dimensions: [{ entity, kind, measurement, text }], xrefs, layouts: [{ name, paper, width, height, viewports: [{ rectangle, ratio, center, shows }], inserts, dimensions }] }, outputs: { png, svg, layouts: [{ name, png }], view, pdf, changes } }.
+render(file: string, options?: { view?: [x0, y0, x1, y1]; layout?: string; drawNoPlot?: boolean; pdf?: boolean; drawingJson?: boolean; width?: number; timeout?: number; reader?: string; pngs?: number }): Promise<BuildState>
+  Builds and writes the SVG pictures as the render tool does, and a PNG of the first pngs of them, 0 unless asked, in the order the brief lists the pictures. It gives the whole BuildState that \`tsdraft render\` prints: { ok, file, ms, error, log, diagnostics: [{ severity, rule, message, call, layer, layout, entity, bounds, ... }], drawing: { units, extents, counts, layers, blocks, inserts: [{ entity, block, layer, id, at, scale, rotation, attributes }], dimensions: [{ entity, kind, measurement, text }], xrefs, layouts: [{ name, paper, width, height, viewports: [{ rectangle, ratio, center, shows }], inserts, dimensions }] }, outputs: { png, svg, layouts: [{ name, png }], view, pdf, drawingJson, changes } }.
 brief(state): the brief the render tool answers with, from a state render gave.
 shows(file: string, options?: { sheet?: string; layout?: string; near?: [x, y]; within?: number; xrefs?: Record<string, string>; reader?: string }): Promise<object>
   What \`tsdraft shows\` prints for a DXF or a DWG: with sheet, what each viewport of that layout shows; with layout, its paper alone; else model space. Each entity with its handle, kind, layer, box and text, nearest first with near.
